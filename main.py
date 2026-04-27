@@ -16,7 +16,7 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 def get_real_news():
     """구글 뉴스 RSS를 통해 뉴스 수집"""
-    query = "AI AX DX 로봇 데이터산업"
+    query = "AI AX DX DC 로봇 데이터 QX 양자"
     encoded_query = urllib.parse.quote(query) 
     url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
     
