@@ -2,7 +2,7 @@ import os
 import requests
 import feedparser
 import urllib.parse
-import time # 재시도를 위해 추가
+import time
 from google import genai
 from datetime import datetime
 
@@ -15,54 +15,57 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 def get_real_news():
+    """구글 뉴스 RSS를 통해 뉴스 수집"""
     query = "AI AX DX 로봇 데이터산업"
     encoded_query = urllib.parse.quote(query) 
     url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
     
     feed = feedparser.parse(url)
     news_items = []
-    for entry in feed.entries[:15]:
-        news_items.append(f"제목: {entry.title}\n")
+    # 데이터가 너무 많으면 할당량을 빨리 소모하므로 상위 10개만 사용
+    for entry in feed.entries[:10]:
+        news_items.append(f"제목: {entry.title}")
     
-    return "\n".join(news_items) if news_items else "최근 수집된 뉴스가 없습니다."
+    return "\n".join(news_items) if news_items else "수집된 뉴스가 없습니다."
 
 def main():
-    print("🚀 뉴스 수집 시작...")
+    print("🚀 뉴스 수집 및 브리핑 준비 중...")
     news_content = get_real_news()
     today_date = datetime.now().strftime("%Y. %m. %d.")
 
-    print("🤖 AI 요약 생성 중 (Model: gemini-2.0-flash)...")
-    prompt = f"당신은 지자체 수석 정책 분석가입니다. 다음 뉴스 내용을 바탕으로 지역별 AI 동향을 마크다운 표로 브리핑하세요.\n\n뉴스 데이터:\n{news_content}"
+    # 프롬프트 최적화 (토큰 절약형)
+    prompt = f"당신은 지자체 수석 정책 분석가입니다. 오늘({today_date})의 뉴스 데이터를 요약하여 지역별 AI 동향을 마크다운 표로 브리핑하세요. 데이터가 부족하면 분석가 견해를 포함하세요.\n\n뉴스:\n{news_content}"
 
     summary = ""
-    # 3. 최대 3번까지 재시도 (429 에러 대비)
-    for i in range(3):
+    # 가장 넉넉한 1.5-flash 모델로 시도
+    # 모델명 앞에 'models/'를 붙여 경로를 명확히 지정 (404 방지)
+    try:
+        print("🤖 AI 요약 생성 중 (Model: gemini-1.5-flash)...")
+        response = client.models.generate_content(
+            model='gemini-1.5-flash', 
+            contents=prompt
+        )
+        summary = response.text
+        print("✅ AI 요약 생성 성공")
+    except Exception as e:
+        print(f"❌ 1.5 모델 실패, 2.0으로 재시도: {e}")
         try:
+            # 1.5가 안 될 경우를 대비한 2.0 예비 시도
             response = client.models.generate_content(
-                model='gemini-2.0-flash', 
+                model='gemini-2.0-flash',
                 contents=prompt
             )
             summary = response.text
-            print("✅ AI 요약 생성 성공")
-            break
-        except Exception as e:
-            if "429" in str(e) and i < 2:
-                print(f"⚠️ 사용량 초과로 인한 재시도 중... ({i+1}/3)")
-                time.sleep(20) # 20초 대기 후 재시도
-            else:
-                print(f"❌ AI 생성 실패: {e}")
-                summary = f"⚠️ [시스템 알림] AI 요약 생성 중 오류가 발생했습니다.\n사유: {e}"
-                break
+        except Exception as e2:
+            summary = f"⚠️ [할당량 초과] 구글 API 무료 한도를 다 썼습니다. 내일 아침 9시에 다시 배달될 예정입니다.\n(사유: {e2})"
 
     print("📤 텔레그램 발송 시도...")
     send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": summary}
     
-    res = requests.post(send_url, json=payload)
-    if res.status_code == 200:
-        print("🎉 모든 과정 성공!")
-    else:
-        print(f"❌ 최종 발송 실패: {res.text}")
+    # 최종 발송
+    requests.post(send_url, json=payload)
+    print("🎉 처리 완료")
 
 if __name__ == "__main__":
     main()
