@@ -1,7 +1,7 @@
 import os
 import requests
 import feedparser
-import urllib.parse  # 주소 변환을 위해 추가
+import urllib.parse
 from google import genai
 from datetime import datetime
 
@@ -10,68 +10,81 @@ GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-# 2. 2026년형 Google GenAI 클라이언트 설정
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 def get_real_news():
-    """구글 뉴스 RSS를 통해 실제 키워드 기반 뉴스를 수집합니다."""
-    # 검색어에서 공백을 URL용 문자로 변환합니다.
     query = "AI AX DX 로봇 데이터산업"
     encoded_query = urllib.parse.quote(query) 
-    
     url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
     
-    # 에러 방지를 위해 User-Agent를 추가하여 요청합니다.
     feed = feedparser.parse(url)
-    
     news_items = []
-    if not feed.entries:
-        return "수집된 최신 뉴스가 없습니다."
-
+    
     for entry in feed.entries[:15]:
-        news_items.append(f"제목: {entry.title}\n내용요약: {entry.summary}\n")
+        news_items.append(f"제목: {entry.title}\n")
+    
+    if not news_items:
+        print("⚠️ 수집된 뉴스가 없습니다.")
+        return "최근 24시간 내에 해당 키워드의 핵심 뉴스가 없습니다."
     
     return "\n".join(news_items)
 
 def main():
-    # 뉴스 데이터 수집
+    print("🚀 뉴스 수집 시작...")
     news_content = get_real_news()
     today_date = datetime.now().strftime("%Y. %m. %d.")
 
-    # 정책 분석가 전용 프롬프트
+    print("🤖 AI 요약 생성 중...")
     prompt = f"""
     당신은 지자체 'AI산업전략과'의 수석 정책 분석가입니다. 
-    제공된 뉴스 데이터를 바탕으로 아래 규칙에 맞춰 브리핑을 작성하세요.
-    
-    [규칙]
-    - 제목은 [지역별 인공지능 관련 언론 동향 ({today_date})]로 시작.
-    - 마크다운 표 형식으로 [구분 | 보도 내용] 구성.
-    - 울산광역시를 제외한 전국 광역 지자체 소식을 골고루 포함. (경기, 강원, 충청, 전라, 경상, 제주 등)
-    - 중앙부처 소식은 30% 이내, 나머지는 지자체 사업으로 구성.
-    - 하단에 [분석가 의견]과 [참고 기사 출처] 포함.
+    오늘의 뉴스({today_date})를 바탕으로 지역별 인공지능 관련 언론 동향을 브리핑하세요.
+    - 반드시 마크다운 표 형식을 사용할 것.
+    - 텔레그램에서 오류가 나지 않도록 특수문자 사용에 주의할 것.
+    - 뉴스 내용이 부족하면 분석가 견해를 중심으로 작성할 것.
 
     뉴스 데이터:
     {news_content}
     """
 
-    # 3. 모델 호출 (gemini-2.0-flash)
     try:
         response = client.models.generate_content(
             model='gemini-2.0-flash',
             contents=prompt
         )
         summary = response.text
+        print("✅ AI 요약 생성 완료")
+        # 로그에서 요약본 미리보기 (디버깅용)
+        print("-" * 30)
+        print(summary[:100] + "...") 
+        print("-" * 30)
     except Exception as e:
-        summary = f"AI 요약 생성 중 오류가 발생했습니다: {e}"
+        print(f"❌ AI 생성 실패: {e}")
+        return
 
-    # 4. 텔레그램 발송
+    # 4. 텔레그램 발송 (진단 로직 추가)
+    print("📤 텔레그램 발송 시도...")
     send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    
+    # 마크다운 문법 오류로 인한 실패를 방지하기 위해 HTML 모드로 시도하거나 
+    # 실패 시 일반 텍스트로 재시도합니다.
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": summary,
-        "parse_mode": "Markdown"
+        "parse_mode": "Markdown" 
     }
-    requests.post(send_url, json=payload)
+    
+    res = requests.post(send_url, json=payload)
+    
+    if res.status_code != 200:
+        print(f"⚠️ 마크다운 발송 실패(에러코드 {res.status_code}). 일반 텍스트로 재시도합니다.")
+        # 마크다운 없이 일반 텍스트로 다시 보냄
+        del payload["parse_mode"]
+        res = requests.post(send_url, json=payload)
+        
+    if res.status_code == 200:
+        print("🎉 메시지 발송 성공!")
+    else:
+        print(f"❌ 최종 발송 실패: {res.text}")
 
 if __name__ == "__main__":
     main()
