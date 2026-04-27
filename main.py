@@ -46,20 +46,18 @@ def main():
     {news_content}
     """
 
-    try:
+try:
+        print("🤖 AI 요약 생성 중 (Model: gemini-1.5-flash)...")
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-1.5-flash', # 이 부분을 수정했습니다!
             contents=prompt
         )
         summary = response.text
         print("✅ AI 요약 생성 완료")
-        # 로그에서 요약본 미리보기 (디버깅용)
-        print("-" * 30)
-        print(summary[:100] + "...") 
-        print("-" * 30)
     except Exception as e:
         print(f"❌ AI 생성 실패: {e}")
-        return
+        # 만약 또 429 에러가 나면 텔레그램으로 상황 보고
+        summary = f"⚠️ 현재 Google API 사용량이 초과되었습니다. 잠시 후 다시 시도해 주세요. (에러: {e})"
 
     # 4. 텔레그램 발송 (진단 로직 추가)
     print("📤 텔레그램 발송 시도...")
