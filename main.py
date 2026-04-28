@@ -52,7 +52,7 @@ def main():
         try:
             # 1.5가 안 될 경우를 대비한 2.0 예비 시도
             response = client.models.generate_content(
-                model='gemini-2.0-flash',
+                model='gemma-3-27b-it',
                 contents=prompt
             )
             summary = response.text
