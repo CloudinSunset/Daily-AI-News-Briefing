@@ -42,7 +42,7 @@ def main():
     try:
         print("🤖 AI 요약 생성 중 (Model: gemini-1.5-flash)...")
         response = client.models.generate_content(
-            model='gemini-1.5-flash', 
+            model='gemma-3-27b-it', 
             contents=prompt
         )
         summary = response.text
