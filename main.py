@@ -7,6 +7,7 @@ import time
 from google import genai
 from datetime import datetime
 from difflib import SequenceMatcher
+import holidays  # ⭐ 추가
 
 # 1. 환경 설정
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
@@ -35,24 +36,52 @@ FILTER_KEYWORDS = [
     "데이터산업", "산업", "사업", "MOU", "컨소시엄", "디지털전환"
 ]
 
-# ⭐ 주요 정치인/공직자 명단
+# ��� 주요 정치인/공직자 명단
 KEY_POLITICIANS = [
     "하정우", "안혜리", "윤석열", "이재명", "이준석", 
     "김기현", "우상호", "박인영", "김태년", "주호영"
 ]
 
-# ⭐ 우선순위 키워드 (산업정책)
+# ⭐ 우선순위 키워드
 PRIORITY_KEYWORDS = [
     "산업육성", "인재양성", "일자리", "고용", "예산", "투자", 
-    "사업", "협력", "파트너십", "컨소시엄", "MOU", "실증", "클러스터", "거점"
+    "사��", "협력", "파트너십", "컨소시엄", "MOU", "실증", "클러스터", "거점"
 ]
 
-# ⭐ 제외할 기관 키워드 (일반 대학교, 학원, 개인사)
+# ⭐ 제외할 기관 키워드
 EXCLUDE_ORGANIZATIONS = [
-    "대학", "대학교", "학교", "학원", "캠프", "과정", "수료", "교육",
-    "고등학교", "중학교", "초등학교",
-    "학부", "학과", "졸업", "입학", "수강"
+    "대학", "대학교", "학교", "학원", "교육", "캠프", "과정", "수료",
+    "우송정보대", "고등학교", "중학교", "초등학교",
+    "학부", "학과", "과정", "졸업", "입학", "수강", "수료"
 ]
+
+# ============================================================
+# ⭐ 공휴일/주말 체크 함수 (토큰 낭비 없음)
+# ============================================================
+
+def should_skip_today():
+    """
+    ⭐ 공휴일 또는 주말이면 True 반환
+    토큰 사용: 0 (단순 날짜 비교)
+    """
+    today = datetime.now().date()
+    kr_holidays = holidays.KR()
+    
+    # 1️⃣ 공휴일 확인
+    if today in kr_holidays:
+        holiday_name = kr_holidays.get(today)
+        print(f"\n🏖️ {today.strftime('%Y. %m. %d.')}는 공휴일입니다. ({holiday_name})")
+        print("   브리핑을 건너뜁니다.\n")
+        return True, f"공휴일: {holiday_name}"
+    
+    # 2️⃣ 주말 확인 (weekday: 0=월, 1=화, ..., 5=토, 6=일)
+    if today.weekday() >= 5:
+        day_name = "토요일" if today.weekday() == 5 else "일요일"
+        print(f"\n📅 {today.strftime('%Y. %m. %d.')}는 {day_name}입니다.")
+        print("   브리핑을 건너뜁니다.\n")
+        return True, day_name
+    
+    return False, None
 
 # ============================================================
 # ⭐ 고급 필터링 시스템
@@ -78,23 +107,12 @@ def has_excluded_name(title):
     return False
 
 def is_educational_news(title):
-    """
-    ⭐ 대학교/학원/일반 교육 뉴스 필터링
-    
-    제외 대상:
-    - "AI 역량 강화 취업캠프" (일반 교육)
-    - "대학교 RISE사업단" (학교 관련)
-    - "고등학교 디지털전환" (학교)
-    """
+    """대학교/학원/일반 교육 뉴스 필터링"""
     title_lower = title.lower()
     
-    # EXCLUDE_ORGANIZATIONS에 포함된 키워드가 있으면 제외
     for org_keyword in EXCLUDE_ORGANIZATIONS:
         if org_keyword in title_lower:
-            # 예외: 정부 정책으로서의 "인재양성", "교육" 포함은 허용
-            # 예: "정부 AI 인재양성 사업"는 허용, "대학교 캠프"는 제외
             if "정부" in title_lower or "지자체" in title_lower or "시" in title_lower or "도" in title_lower:
-                # 지자체가 주도하는 교육은 허용
                 continue
             else:
                 return True
@@ -102,25 +120,12 @@ def is_educational_news(title):
     return False
 
 def calculate_title_similarity(title1, title2):
-    """
-    ⭐ 제목 유사도 계산 (중복 제거용)
-    
-    SequenceMatcher를 사용하여 두 제목의 유사도를 0~1 범위로 반환
-    0.7 이상이면 같은 내용으로 판단
-    """
+    """제목 유사도 계산"""
     ratio = SequenceMatcher(None, title1, title2).ratio()
     return ratio
 
 def remove_duplicate_news(news_list, similarity_threshold=0.65):
-    """
-    ⭐ 중복 뉴스 제거 (제목 유사도 기반)
-    
-    같은 사건을 다르게 표현한 뉴스를 감지하여 제거
-    예:
-    - "포천시, 특수지상작전연구회와 MOU" 
-    - "포천시, 국방 AI·디지털 전환 협력 본격화…특수지상작전연구회와 MOU"
-    → 유사도 0.7 이상 → 하나만 유지
-    """
+    """중복 뉴스 제거"""
     print("[중복 제거 시작]")
     unique_news = []
     
@@ -133,7 +138,6 @@ def remove_duplicate_news(news_list, similarity_threshold=0.65):
                 existing["title"].lower()
             )
             
-            # 유사도 기준 초과하면 중복으로 판단
             if similarity > similarity_threshold:
                 print(f"  ⛔ 중복 제거 (유사도 {similarity:.2f})")
                 print(f"     제외: {current['title'][:50]}...")
@@ -163,9 +167,7 @@ def get_priority_score(title):
 # ============================================================
 
 def fetch_news_by_keyword(keyword, max_results=5):
-    """
-    특정 키워드로 Google News RSS에서 뉴스를 수집합니다.
-    """
+    """특정 키워드로 Google News RSS에서 뉴스를 수집합니다."""
     try:
         encoded_query = urllib.parse.quote(keyword)
         url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
@@ -181,16 +183,13 @@ def fetch_news_by_keyword(keyword, max_results=5):
         for entry in feed.entries[:max_results]:
             title = entry.title
             
-            # ⭐ 필터링 1: 정치인 이름
             if has_excluded_name(title):
                 continue
             
-            # ⭐ 필터링 2: 일반 교육 뉴스
             if is_educational_news(title):
                 print(f"  ⛔ 교육 뉴스 제외: {title[:50]}...")
                 continue
             
-            # ⭐ 필터링 3: 핵심 키워드
             if any(k.lower() in title.lower() for k in FILTER_KEYWORDS):
                 news_items.append({
                     "title": title,
@@ -224,7 +223,6 @@ def get_central_news():
             })
         time.sleep(0.2)
     
-    # 중복 제거
     seen = set()
     unique_central = []
     for item in central_news:
@@ -258,7 +256,6 @@ def get_regional_news():
             })
         time.sleep(0.2)
     
-    # 중복 제거
     seen = set()
     unique_regional = []
     for item in regional_news:
@@ -270,16 +267,9 @@ def get_regional_news():
     return unique_regional
 
 def balance_news(central_news, regional_news):
-    """
-    뉴스 균형 조절 + 중복 제거
-    """
-    # 모든 뉴스 합치기
+    """뉴스 균형 조절 + 중복 제거"""
     all_news = central_news + regional_news
-    
-    # ⭐ 중복 뉴스 제거 (유사도 기반)
     unique_news = remove_duplicate_news(all_news, similarity_threshold=0.65)
-    
-    # 우선순위로 정렬
     sorted_news = sorted(unique_news, key=lambda x: x["priority"], reverse=True)
     
     print(f"  ✅ 최종 선별: {len(unique_news)}개 뉴스 준비됨\n")
@@ -302,7 +292,7 @@ def summarize_news_article(title, link):
     prompt = f"""
 당신은 AI 산업 정책 분석가입니다.
 
-다음 뉴스 제목을 보고 1-2줄(최대 100자)로 핵심을 요약하세요.
+��음 뉴스 제목을 보고 1-2줄(최대 100자)로 핵심을 요약하세요.
 산업육성, 인재양성, 투자, 일자리 관련 내용을 중심으로.
 
 뉴스 제목: {title}
@@ -323,20 +313,11 @@ def summarize_news_article(title, link):
         return "[요약 생성 불가]"
 
 def get_summaries_for_news(news_data):
-    """
-    ⭐ 핵심 최적화: TOP 5만 요약
-    
-    이유:
-    - API 호출: 5회 (매우 안전)
-    - 토큰 사용: 최소화
-    - 품질: 상위 기사만 상세 분석
-    - 결과: 무료 티어에서 완벽히 안전
-    """
+    """TOP 5만 요약"""
     print("[Step 3] 📝 TOP 5 뉴스 요약 생성 중...\n")
     
     summarized_news = []
     
-    # ⭐ TOP 5만 처리
     for idx, item in enumerate(news_data[:5], 1):
         print(f"  → {idx}. '{item['title'][:60]}...' 요약 중...")
         
@@ -360,14 +341,7 @@ def get_summaries_for_news(news_data):
 # ============================================================
 
 def format_briefing_with_summaries(news_data, today_date):
-    """
-    ⭐ 간결한 포맷팅: TOP 5 + 요약
-    
-    형식:
-    📍 지역
-    📌 제목
-    ✓ 요약
-    """
+    """포맷팅된 브리핑 생성"""
     briefing = f"""【 지역별 AI 산업 뉴스 브리핑 】
 📅 {today_date}
 
@@ -421,6 +395,12 @@ def main():
     print("🚀 AI 산업 뉴스 자동 브리핑 시작")
     print("=" * 60)
     
+    # ⭐ Step 0: 공휴일/주말 체크 (토큰 낭비 없음)
+    should_skip, reason = should_skip_today()
+    if should_skip:
+        send_to_telegram(f"🏖️ {datetime.now().strftime('%Y. %m. %d.')}는 {reason}입니다.\n브리핑을 건너뜁니다.")
+        return
+    
     today_date = datetime.now().strftime("%Y. %m. %d.")
     
     try:
@@ -435,7 +415,7 @@ def main():
         
         print(f"✅ 최종 {len(news_data)}개 뉴스 선별됨\n")
         
-        # Step 2: ⭐ TOP 5 요약 생성
+        # Step 2: TOP 5 요약 생성
         try:
             summarized_news = get_summaries_for_news(news_data)
             
@@ -449,8 +429,8 @@ def main():
             print(f"❌ 요약 생성 오류: {error_msg}")
             
             if "429" in error_msg or "RESOURCEEXHAUSTED" in error_msg:
-                print("⚠️ API ���터 초과 → 다시 시도해주세요")
-                send_to_telegram(f"⚠️ {today_date} - API 쿼터 초과\n내일 아침에 다시 시도되습니다.")
+                print("⚠️ API 쿼터 초과 → 다시 시도해주세요")
+                send_to_telegram(f"⚠️ {today_date} - API 쿼터 초과\n내일 아침에 다시 시도됩니다.")
                 return
             else:
                 send_to_telegram(f"⚠️ 요약 생성 실패: {error_msg[:50]}")
