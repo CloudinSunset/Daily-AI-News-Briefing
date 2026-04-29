@@ -2,7 +2,7 @@ name: Daily AI News Report
 
 on:
   schedule:
-    - cron: '0 0 * * 1-5'  # 한국 시간 매일 아침 9시 (UTC 기준 0시), 월-금만 실행
+    - cron: '0 0 * * *'  # ⭐ 매일 실행 (코드에서 공휴일/주말 필터)
   workflow_dispatch: 
 
 jobs:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      TZ: 'Asia/Seoul'  # 한국 시간대 설정
+      TZ: 'Asia/Seoul'
 
     steps:
       - name: Checkout code
@@ -23,7 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install google-genai feedparser requests beautifulsoup4
+          pip install google-genai feedparser requests beautifulsoup4 holidays
 
       - name: Run main script
         env:
