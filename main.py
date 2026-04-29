@@ -4,8 +4,7 @@ import feedparser
 import urllib.parse
 import time
 from google import genai
-from datetime import datetime, timedelta
-from bs4 import BeautifulSoup
+from datetime import datetime
 
 # 1. 환경 설정
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
@@ -23,30 +22,29 @@ CENTRAL_KEYWORDS = [
     "AI", "DX", "데이터센터", "양자컴퓨팅", "디지털전환", "인공지능전략"
 ]
 
-# [지역별용] 지역 + 이 키워드들의 조합으로 검색됨
-REGION_KEYWORDS = [
-    "AI 산업", "디지털 전환", "로봇", "데이터", "혁신"
-]
+# [지역별용] 지역 + 단일 복합 키워드로 검색 (API 요청 최소화)
+REGION_KEYWORDS = ["AI 산업 디지털전환"]  # 1개만 사용
 
-# 지자체 목록
+# 지자체 목록 (울산 제외)
 REGIONS = [
     "서울", "경기", "인천", "강원", "충북", "충남", 
     "전북", "전남", "경북", "경남", "부산", "대구", "광주", "대전", "제주"
 ]
 
-# 필터링용 핵심 키워드 (수집된 뉴스 중에 이 중 하나가 있어야 포함됨)
+# 필터링용 핵심 키워드
 FILTER_KEYWORDS = [
     "AI", "인공지능", "AX", "DX", "데이터센터", "양자", "로봇", 
     "데이터산업", "산업", "사업", "MOU", "컨소시엄", "디지털전환"
 ]
 
 # ============================================================
-# 📡 뉴스 수집 함수들
+# 📡 뉴스 수집 함수들 (API 요청 최소화)
 # ============================================================
 
-def fetch_news_by_keyword(keyword, max_results=10):
+def fetch_news_by_keyword(keyword, max_results=5):
     """
-    특정 키워드로 Google News RSS에서 ��스를 수집합니다.
+    특정 키워드로 Google News RSS에서 뉴스를 수집합니다.
+    (API 요청을 최소화하기 위해 max_results를 5로 제한)
     
     Args:
         keyword: 검색할 키워드 (예: "AI", "경기도 AI 산업")
@@ -86,15 +84,16 @@ def fetch_news_by_keyword(keyword, max_results=10):
 
 def get_central_news():
     """
-    🏛️ 중앙정부 뉴스 수집
-    CENTRAL_KEYWORDS로만 검색 → 최대 30% 비중
+    🏛️ 중앙정부 뉴스 수집 (최소 요청)
+    CENTRAL_KEYWORDS로 각각 검색
+    총 API 호출: 6회
     """
     print("[Step 1] 🏛️ 중앙정부 뉴스 수집 중...")
     central_news = []
     
     for keyword in CENTRAL_KEYWORDS:
         print(f"  → '{keyword}' 검색 중...")
-        news = fetch_news_by_keyword(keyword, max_results=8)
+        news = fetch_news_by_keyword(keyword, max_results=5)
         
         for item in news:
             central_news.append({
@@ -104,7 +103,7 @@ def get_central_news():
                 "link": item["link"],
                 "published": item["published"]
             })
-        time.sleep(0.3)  # API 요청 간격
+        time.sleep(0.2)  # API 요청 간격
     
     # 중복 제거
     seen = set()
@@ -119,28 +118,33 @@ def get_central_news():
 
 def get_regional_news():
     """
-    📍 지역별 뉴스 수집
-    각 지역 + REGION_KEYWORDS 조합으로 검색 → 최소 70% 비중
+    📍 지역별 뉴스 수집 (API 요청 최소화)
+    각 지역별로 단일 복합 키워드만 사용
+    총 API 호출: 15회 (지역 수)
+    
+    이전: 15 × 5 = 75회 ❌
+    현재: 15 × 1 = 15회 ✅
     """
     print("[Step 2] 📍 지역별 뉴스 수집 중...")
     regional_news = []
     
     for region in REGIONS:
-        for keyword in REGION_KEYWORDS:
-            # 검색 쿼리: "경기도 AI 산업" 형식
-            query = f"{region} {keyword}"
-            print(f"  → '{query}' 검색 중...")
-            news = fetch_news_by_keyword(query, max_results=5)
-            
-            for item in news:
-                regional_news.append({
-                    "source": region,
-                    "category": keyword,
-                    "title": item["title"],
-                    "link": item["link"],
-                    "published": item["published"]
-                })
-            time.sleep(0.2)
+        # 단일 복합 키워드만 사용
+        keyword = REGION_KEYWORDS[0]  # "AI 산업 디지털전환"
+        query = f"{region} {keyword}"
+        
+        print(f"  → '{query}' 검색 중...")
+        news = fetch_news_by_keyword(query, max_results=5)
+        
+        for item in news:
+            regional_news.append({
+                "source": region,
+                "category": keyword,
+                "title": item["title"],
+                "link": item["link"],
+                "published": item["published"]
+            })
+        time.sleep(0.2)
     
     # 중복 제거
     seen = set()
@@ -156,10 +160,11 @@ def get_regional_news():
 def balance_news(central_news, regional_news):
     """
     뉴스 균형 조절: 중앙정부 30%, 지역별 70%
+    (AI 브리핑 생성 전에 미리 선별하여 프롬프트 크기 최소화)
     """
-    total_slots = 20  # 최종 브리핑에 사용할 뉴스 개수
-    central_slots = int(total_slots * 0.3)  # 6개
-    regional_slots = total_slots - central_slots  # 14개
+    total_slots = 15  # ⬇️ 최종 브리핑에 사용할 뉴스 개수 (20 → 15로 감소)
+    central_slots = int(total_slots * 0.3)  # 4-5개
+    regional_slots = total_slots - central_slots  # 10-11개
     
     # 각각 필요한 개수만 선택
     selected_central = central_news[:central_slots]
@@ -174,9 +179,10 @@ def balance_news(central_news, regional_news):
 def get_all_news():
     """
     통합 뉴스 수집 함수
-    1. 중앙정부 뉴스 (CENTRAL_KEYWORDS 사용)
-    2. 지역별 뉴스 (지역 + REGION_KEYWORDS 사용)
-    3. 비율 균형 유지
+    1. 중앙정부 뉴스: 6회 요청
+    2. 지역별 뉴스: 15회 요청
+    ───────��─────────────
+    총 API 호출: ~21회 ✅ (이전: 80회)
     """
     central_news = get_central_news()
     regional_news = get_regional_news()
@@ -185,50 +191,46 @@ def get_all_news():
     return balanced_news
 
 # ============================================================
-# 🤖 브리핑 생성 함수
+# 🤖 브리핑 생성 함수 (프롬프트 크기 최소화)
 # ============================================================
 
 def create_briefing_prompt(news_data, today_date):
     """
     구조화된 프롬프트로 품질 개선
+    ⬇️ 토큰 수 최소화를 위해 프롬프트 길이 감소
     """
     
-    # 뉴스 데이터 정리 (출력용)
+    # 뉴스 데이터 정리 (간결하게)
     news_formatted = "\n".join([
-        f"[{item['source']}] {item['title']}"
+        f"[{item['source']}] {item['title'][:100]}"  # 제목 100자 제한
         for item in news_data
     ])
     
-    prompt = f"""
-당신은 대한민국 지자체 'AI산업전략과'의 수석 정책 분석가입니다.
+    prompt = f"""당신은 AI산업전략과의 정책 분석가입니다. {today_date} 뉴스를 브리핑하세요.
 
 【 지역별 AI 산업 뉴스 브리핑 】
-📅 {today_date}
 
-=== 절대 지킬 규칙 ===
-1. 표(Table) 금지 - 모바일에서 깨짐 ⛔
-2. 마크다운 형식만 사용 (**, •, ---)
-3. 최대 1,500자 (휴대폰 화면 2-3배 스크롤)
-4. 각 뉴스는 최대 2줄 요약
+=== 규칙 ===
+- 표 금지 (모바일 최적화)
+- 마크다운만 사용 (**, •, ---)
+- 최대 1,200자 (간결함)
+- 각 뉴스 최대 2줄 요약
 
-=== 출력 형식 (필수) ===
-📍 **지역/기관명**
-📌 **기사 제목 (굵게)**
-✓ 핵심: (주체 + 날짜 + 내용 요약)
+=== 형식 ===
+📍 **지역명**
+📌 **기사 제목**
+✓ 핵심: 한 문장 요약
 
 ---
 
-=== 수집된 뉴스 ===
+=== 뉴스 ===
 {news_formatted}
 
-=== 출력 지시 ===
-1. 위 뉴스에서 가장 중요한 TOP 8개만 선별
-2. 각각을 위 형식에 맞춰 정리
-3. 마지막에 [오늘의 AI 산업 트렌드] 한 문장 추가
-4. 모바일 가독성 최우선 - 간결함이 최고
-5. 출처 목록 생략
-
-반드시 위 형식을 엄격히 따르세요!
+=== 지시 ===
+1. TOP 5-6개만 선별
+2. 위 형식 엄격 준수
+3. 마지막에 [오늘의 트렌드] 한 문장
+4. 모바일 가독성 우선
 """
     
     return prompt
@@ -263,7 +265,7 @@ def send_to_telegram(message):
         except Exception as e:
             print(f"❌ 텔레그램 발송 오류: {e}")
         
-        time.sleep(0.5)  # 메시지 간격
+        time.sleep(0.5)
 
 # ============================================================
 # 🎯 메인 함수
@@ -276,40 +278,75 @@ def main():
     
     today_date = datetime.now().strftime("%Y. %m. %d.")
     
-    # Step 1: 뉴스 수집 (중앙정부 + 지역별)
-    print(f"\n📡 {today_date} 뉴스 수집 시작...\n")
-    news_data = get_all_news()
-    
-    if not news_data:
-        print("\n⚠️ 수집된 뉴스가 없습니다")
-        send_to_telegram(f"⚠️ {today_date} - 수집된 AI 관련 뉴스가 없습니다.")
-        return
-    
-    print(f"\n✅ 총 {len(news_data)}개 뉴스 수집 완료\n")
-    
-    # Step 2: 프롬프트 생성
-    prompt = create_briefing_prompt(news_data, today_date)
-    
-    # Step 3: AI 브리핑 생성
-    print("🤖 AI 브리핑 생성 중...\n")
     try:
-        response = client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=prompt
-        )
-        briefing = response.text
+        # Step 1: 뉴스 수집 (중앙정부 + 지역별)
+        print(f"\n📡 {today_date} 뉴스 수집 시작...\n")
+        news_data = get_all_news()
+        
+        if not news_data:
+            print("\n⚠️ 수집된 뉴스가 없습니다")
+            send_to_telegram(f"⚠️ {today_date} - 수집된 AI 관련 뉴스가 없습니다.")
+            return
+        
+        print(f"\n✅ 총 {len(news_data)}개 뉴스 수집 완료\n")
+        
+        # Step 2: 프롬프트 생성
+        prompt = create_briefing_prompt(news_data, today_date)
+        
+        # Step 3: AI 브리핑 생성 (에러 처리 강화)
+        print("🤖 AI 브리핑 생성 중...\n")
+        try:
+            response = client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=prompt
+            )
+            briefing = response.text
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ AI 생성 오류: {error_msg}")
+            
+            # API 쿼터 초과 시 간단한 브리핑 생성
+            if "429" in error_msg or "RESOURCEEXHAUSTED" in error_msg:
+                print("⚠️ API 쿼터 초과 → 기본 브리핑 생성")
+                briefing = generate_simple_briefing(news_data, today_date)
+            else:
+                send_to_telegram(f"⚠️ AI 브리핑 생성 실패")
+                return
+        
+        # Step 4: 텔레그램 발송
+        print("📤 텔레그램 발송 중...\n")
+        send_to_telegram(briefing)
+        
+        print("=" * 60)
+        print("🎉 완료!")
+        print("=" * 60)
+    
     except Exception as e:
-        print(f"❌ AI 생성 오류: {e}")
-        send_to_telegram(f"⚠️ AI 브리핑 생성 실패: {str(e)}")
-        return
+        print(f"❌ 예상치 못한 오류: {e}")
+        send_to_telegram(f"❌ 브리핑 생성 중 오류 발생: {str(e)[:100]}")
+
+def generate_simple_briefing(news_data, today_date):
+    """
+    API 쿼터 초과 시 AI 없이 기본 브리핑 생성
+    """
+    briefing = f"""
+【 지역별 AI 산업 뉴스 브리핑 】
+📅 {today_date}
+
+"""
     
-    # Step 4: 텔레그램 발송
-    print("📤 텔레그램 발송 중...\n")
-    send_to_telegram(briefing)
+    for idx, item in enumerate(news_data[:6], 1):
+        briefing += f"""
+📍 **{item['source']}**
+📌 **{item['title'][:80]}**
+"""
     
-    print("=" * 60)
-    print("🎉 완료!")
-    print("=" * 60)
+    briefing += f"""
+---
+[참고] AI 요약은 API 제한으로 기본 목록 제공됨
+"""
+    
+    return briefing
 
 if __name__ == "__main__":
     main()
