@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 import feedparser
 import urllib.parse
@@ -14,44 +15,86 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ============================================================
-# 🔴 핵심 키워드 정의 (검색 기준)
+# 🔴 핵심 키워드 정의
 # ============================================================
 
-# [중앙정부용] 최우선 키워드 - 이것으로만 검색됨
 CENTRAL_KEYWORDS = [
-    "AI", "DX", "데이터센터", "양자컴퓨팅", "디지털전환", "인공지능전략"
+    "AI", "DX", "데이터센터", "양자클러스터", "디지털전환", "인공지능전략"
 ]
 
-# [지역별용] 지역 + 단일 복합 키워드로 검색 (API 요청 최소화)
-REGION_KEYWORDS = ["AI 산업 디지털전환"]  # 1개만 사용
+REGION_KEYWORDS = ["AI 양자 산업 디지털전환"]
 
-# 지자체 목록 (울산 제외)
 REGIONS = [
     "서울", "경기", "인천", "강원", "충북", "충남", 
     "전북", "전남", "경북", "경남", "부산", "대구", "광주", "대전", "제주"
 ]
 
-# 필터링용 핵심 키워드
 FILTER_KEYWORDS = [
     "AI", "인공지능", "AX", "DX", "데이터센터", "양자", "로봇", 
     "데이터산업", "산업", "사업", "MOU", "컨소시엄", "디지털전환"
 ]
 
+# ⭐ [유지보수 최소화] 주요 정치인/공직자만 명시적으로 등록
+KEY_POLITICIANS = [
+    "하정우", "안혜리", "윤석열", "이재명", "이준석", 
+    "김기현", "우상호", "박인영", "김태년", "주호영"
+]
+
+PRIORITY_KEYWORDS = [
+    "산업육성", "인재양성", "일자리", "고용", "예산", "투자", 
+    "사업", "협력", "파트너십", "컨소시엄", "MOU", "실증", "클러스터", "거점"
+]
+
 # ============================================================
-# 📡 뉴스 수집 함수들 (API 요청 최소화)
+# ⭐ 이름 필터링 시스템 (효율성 최적화)
+# ============================================================
+
+def has_excluded_name(title):
+    
+    # 1단계: 정규식으로 일반적인 사람 이름 패턴 감지
+    # 패턴: "한글이름(2-3글자) + 직책/역할"
+    
+    person_patterns = [
+        r'[가-힣]{2,3}\s+(수석|회장|부회장|이사|부장|팀장|대표|위원|의원|장관|담당|CEO|교수|박사)',  # "OOO 수석"
+        r'[가-힣]{2,3}(의|가|로)\s+',  # "OOO의 ~", "OOO가 ~", "OOO로 ~"
+        r'[가-힣]{2,3}\s+[가-힣]{2,3}(수석|회장|부회장)',  # "OOO OOO 수석"
+    ]
+    
+    for pattern in person_patterns:
+        if re.search(pattern, title):
+            print(f"  ⛔ 개인명 패턴 감지 제외: {title[:50]}...")
+            return True
+    
+    # 2단계: 주요 정치인 명단 확인
+    title_lower = title.lower()
+    for politician in KEY_POLITICIANS:
+        if politician.lower() in title_lower:
+            print(f"  ⛔ 정치인 제외: {title[:50]}...")
+            return True
+    
+    return False
+
+def get_priority_score(title):
+    """
+    우선순위 점수 계산
+    """
+    score = 0
+    title_lower = title.lower()
+    
+    for keyword in PRIORITY_KEYWORDS:
+        if keyword.lower() in title_lower:
+            score += 10
+    
+    return score
+
+# ============================================================
+# 📡 뉴스 수집 함수들
 # ============================================================
 
 def fetch_news_by_keyword(keyword, max_results=5):
     """
     특정 키워드로 Google News RSS에서 뉴스를 수집합니다.
-    (API 요청을 최소화하기 위해 max_results를 5로 제한)
-    
-    Args:
-        keyword: 검색할 키워드 (예: "AI", "경기도 AI 산업")
-        max_results: 수집할 최대 뉴스 개수
-    
-    Returns:
-        뉴스 리스트 (title, link, published)
+    ⭐ 효율적인 필터링 적용
     """
     try:
         encoded_query = urllib.parse.quote(keyword)
@@ -68,7 +111,11 @@ def fetch_news_by_keyword(keyword, max_results=5):
         for entry in feed.entries[:max_results]:
             title = entry.title
             
-            # 필터링: FILTER_KEYWORDS 중 하나 이상 포함해야 함
+            # ⭐ 개인명 포함 기사 제외 (효율적 필터링)
+            if has_excluded_name(title):
+                continue
+            
+            # 핵심 키워드 필터링
             if any(k.lower() in title.lower() for k in FILTER_KEYWORDS):
                 news_items.append({
                     "title": title,
@@ -83,11 +130,7 @@ def fetch_news_by_keyword(keyword, max_results=5):
         return []
 
 def get_central_news():
-    """
-    🏛️ 중앙정부 뉴스 수집 (최소 요청)
-    CENTRAL_KEYWORDS로 각각 검색
-    총 API 호출: 6회
-    """
+    """🏛️ 중앙정부 뉴스 수집"""
     print("[Step 1] 🏛️ 중앙정부 뉴스 수집 중...")
     central_news = []
     
@@ -101,9 +144,10 @@ def get_central_news():
                 "category": keyword,
                 "title": item["title"],
                 "link": item["link"],
-                "published": item["published"]
+                "published": item["published"],
+                "priority": get_priority_score(item["title"])
             })
-        time.sleep(0.2)  # API 요청 간격
+        time.sleep(0.2)
     
     # 중복 제거
     seen = set()
@@ -117,20 +161,12 @@ def get_central_news():
     return unique_central
 
 def get_regional_news():
-    """
-    📍 지역별 뉴스 수집 (API 요청 최소화)
-    각 지역별로 단일 복합 키워드만 사용
-    총 API 호출: 15회 (지역 수)
-    
-    이전: 15 × 5 = 75회 ❌
-    현재: 15 × 1 = 15회 ✅
-    """
+    """📍 지역별 뉴스 수집"""
     print("[Step 2] 📍 지역별 뉴스 수집 중...")
     regional_news = []
     
     for region in REGIONS:
-        # 단일 복합 키워드만 사용
-        keyword = REGION_KEYWORDS[0]  # "AI 산업 디지털전환"
+        keyword = REGION_KEYWORDS[0]
         query = f"{region} {keyword}"
         
         print(f"  → '{query}' 검색 중...")
@@ -142,7 +178,8 @@ def get_regional_news():
                 "category": keyword,
                 "title": item["title"],
                 "link": item["link"],
-                "published": item["published"]
+                "published": item["published"],
+                "priority": get_priority_score(item["title"])
             })
         time.sleep(0.2)
     
@@ -158,32 +195,24 @@ def get_regional_news():
     return unique_regional
 
 def balance_news(central_news, regional_news):
-    """
-    뉴스 균형 조절: 중앙정부 30%, 지역별 70%
-    (AI 브리핑 생성 전에 미리 선별하여 프롬프트 크기 최소화)
-    """
-    total_slots = 15  # ⬇️ 최종 브리핑에 사용할 뉴스 개수 (20 → 15로 감소)
-    central_slots = int(total_slots * 0.3)  # 4-5개
-    regional_slots = total_slots - central_slots  # 10-11개
+    """뉴스 균형 조절"""
+    central_news_sorted = sorted(central_news, key=lambda x: x["priority"], reverse=True)
+    regional_news_sorted = sorted(regional_news, key=lambda x: x["priority"], reverse=True)
     
-    # 각각 필요한 개수만 선택
-    selected_central = central_news[:central_slots]
-    selected_regional = regional_news[:regional_slots]
+    total_slots = 15
+    central_slots = int(total_slots * 0.3)
+    regional_slots = total_slots - central_slots
     
-    # 합치기
+    selected_central = central_news_sorted[:central_slots]
+    selected_regional = regional_news_sorted[:regional_slots]
+    
     balanced_news = selected_central + selected_regional
     
     print(f"  ✅ 최종 균형: 중앙정부 {len(selected_central)}개, 지역별 {len(selected_regional)}개")
     return balanced_news
 
 def get_all_news():
-    """
-    통합 뉴스 수집 함수
-    1. 중앙정부 뉴스: 6회 요청
-    2. 지역별 뉴스: 15회 요청
-    ───────��─────────────
-    총 API 호출: ~21회 ✅ (이전: 80회)
-    """
+    """통합 뉴스 수집"""
     central_news = get_central_news()
     regional_news = get_regional_news()
     balanced_news = balance_news(central_news, regional_news)
@@ -191,58 +220,82 @@ def get_all_news():
     return balanced_news
 
 # ============================================================
-# 🤖 브리핑 생성 함수 (프롬프트 크기 최소화)
+# 🤖 각 뉴스 요약 함수
 # ============================================================
 
-def create_briefing_prompt(news_data, today_date):
-    """
-    구조화된 프롬프트로 품질 개선
-    ⬇️ 토큰 수 최소화를 위해 프롬프트 길이 감소
-    """
-    
-    # 뉴스 데이터 정리 (간결하게)
-    news_formatted = "\n".join([
-        f"[{item['source']}] {item['title'][:100]}"  # 제목 100자 제한
-        for item in news_data
-    ])
-    
-    prompt = f"""당신은 AI산업전략과의 정책 분석가입니다. {today_date} 뉴스를 브리핑하세요.
+def summarize_news_article(title, link):
+    """각 기사의 1-2줄 요약 생성"""
+    prompt = f"""
+당신은 AI 산업 정책 분석가입니다.
 
-【 지역별 AI 산업 뉴스 브리핑 】
+다음 뉴스 제목을 보고 1-2줄(최대 100자)로 핵심을 요약하세요.
+산업육성, 인재양성, 투자, 일자리 관련 내용을 중심으로.
 
-=== 규칙 ===
-- 표 금지 (모바일 최적화)
-- 마크다운만 사용 (**, •, ---)
-- 최대 1,200자 (간결함)
-- 각 뉴스 최대 2줄 요약
+뉴스 제목: {title}
 
-=== 형식 ===
-📍 **지역명**
-📌 **기사 제목**
-✓ 핵심: 한 문장 요약
-
----
-
-=== 뉴스 ===
-{news_formatted}
-
-=== 지시 ===
-1. TOP 5-6개만 선별
-2. 위 형식 엄격 준수
-3. 마지막에 [오늘의 트렌드] 한 문장
-4. 모바일 가독성 우선
+요약(1-2줄만):
 """
     
-    return prompt
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt
+        )
+        summary = response.text.strip()
+        summary = summary.replace('\n', ' ')
+        return summary[:100]
+    except Exception as e:
+        print(f"⚠️ 요약 생성 실패: {e}")
+        return "요약 생성 중 오류"
+
+def get_summaries_for_news(news_data):
+    """모든 뉴스에 대한 요약 생성"""
+    print("[Step 3] 📝 뉴스 요약 생성 중...\n")
+    
+    summarized_news = []
+    for idx, item in enumerate(news_data[:8], 1):
+        print(f"  → {idx}. '{item['title'][:50]}...' 요약 중...")
+        
+        summary = summarize_news_article(item['title'], item.get('link', ''))
+        
+        summarized_news.append({
+            "source": item["source"],
+            "title": item["title"],
+            "link": item["link"],
+            "summary": summary,
+            "priority": item["priority"]
+        })
+        
+        time.sleep(0.3)
+    
+    print(f"  ✅ {len(summarized_news)}개 뉴스 요약 완료\n")
+    return summarized_news
+
+# ============================================================
+# 📤 텔레그램 포맷팅 및 발송
+# ============================================================
+
+def format_briefing_with_summaries(news_data, today_date):
+    """포맷팅된 브리핑 생성"""
+    briefing = f"""【 지역별 AI 산업 뉴스 브리핑 】
+📅 {today_date}
+
+"""
+    
+    for item in news_data:
+        briefing += f"""📍 **{item['source']}**
+📌 **{item['title']}**
+✓ {item['summary']}
+
+---
+"""
+    
+    return briefing
 
 def send_to_telegram(message):
-    """
-    텔레그램 발송 (재시도 로직 포함)
-    메시지가 길면 자동 분할
-    """
+    """텔레그램 발송"""
     send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     
-    # 메시지가 너무 길면 분할
     max_length = 4096
     if len(message) > max_length:
         messages = [message[i:i+max_length] for i in range(0, len(message), max_length)]
@@ -279,7 +332,7 @@ def main():
     today_date = datetime.now().strftime("%Y. %m. %d.")
     
     try:
-        # Step 1: 뉴스 수집 (중앙정부 + 지역별)
+        # Step 1: 뉴스 수집
         print(f"\n📡 {today_date} 뉴스 수집 시작...\n")
         news_data = get_all_news()
         
@@ -290,28 +343,27 @@ def main():
         
         print(f"\n✅ 총 {len(news_data)}개 뉴스 수집 완료\n")
         
-        # Step 2: 프롬프트 생성
-        prompt = create_briefing_prompt(news_data, today_date)
-        
-        # Step 3: AI 브리핑 생성 (에러 처리 강화)
-        print("🤖 AI 브리핑 생성 중...\n")
+        # Step 2: 뉴스별 요약 생성
         try:
-            response = client.models.generate_content(
-                model='gemini-2.0-flash',
-                contents=prompt
-            )
-            briefing = response.text
+            summarized_news = get_summaries_for_news(news_data)
         except Exception as e:
             error_msg = str(e)
-            print(f"❌ AI 생성 오류: {error_msg}")
+            print(f"❌ 요약 생성 오류: {error_msg}")
             
-            # API 쿼터 초과 시 간단한 브리핑 생성
             if "429" in error_msg or "RESOURCEEXHAUSTED" in error_msg:
-                print("⚠️ API 쿼터 초과 → 기본 브리핑 생성")
-                briefing = generate_simple_briefing(news_data, today_date)
+                print("⚠️ API 쿼터 초과 → 요약 없이 기본 브리핑 생성")
+                summarized_news = [{
+                    "source": item["source"],
+                    "title": item["title"],
+                    "summary": "[요약 생성 불가]",
+                    "link": item["link"]
+                } for item in news_data[:8]]
             else:
-                send_to_telegram(f"⚠️ AI 브리핑 생성 실패")
+                send_to_telegram(f"⚠️ 요약 생성 실패: {error_msg[:50]}")
                 return
+        
+        # Step 3: 포맷팅
+        briefing = format_briefing_with_summaries(summarized_news, today_date)
         
         # Step 4: 텔레그램 발송
         print("📤 텔레그램 발송 중...\n")
@@ -324,29 +376,6 @@ def main():
     except Exception as e:
         print(f"❌ 예상치 못한 오류: {e}")
         send_to_telegram(f"❌ 브리핑 생성 중 오류 발생: {str(e)[:100]}")
-
-def generate_simple_briefing(news_data, today_date):
-    """
-    API 쿼터 초과 시 AI 없이 기본 브리핑 생성
-    """
-    briefing = f"""
-【 지역별 AI 산업 뉴스 브리핑 】
-📅 {today_date}
-
-"""
-    
-    for idx, item in enumerate(news_data[:6], 1):
-        briefing += f"""
-📍 **{item['source']}**
-📌 **{item['title'][:80]}**
-"""
-    
-    briefing += f"""
----
-[참고] AI 요약은 API 제한으로 기본 목록 제공됨
-"""
-    
-    return briefing
 
 if __name__ == "__main__":
     main()
