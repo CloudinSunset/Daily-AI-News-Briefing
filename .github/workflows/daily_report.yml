@@ -2,15 +2,15 @@ name: Daily AI News Report
 
 on:
   schedule:
-    - cron: '40 23 * * *' # 한국 시간 오전 8시 40분
+    - cron: '0 0 * * 1-5'  # 한국 시간 매일 아침 9시 (UTC 기준 0시), 월-금만 실행
   workflow_dispatch: 
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 시스템 환경 변수를 추가하여 최신 Node.js 24를 강제로 사용하게 합니다.
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      TZ: 'Asia/Seoul'  # 한국 시간대 설정
 
     steps:
       - name: Checkout code
@@ -23,7 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install google-genai feedparser requests
+          pip install google-genai feedparser requests beautifulsoup4
 
       - name: Run main script
         env:
