@@ -4,7 +4,8 @@ import feedparser
 import urllib.parse
 import time
 from google import genai
-from datetime import datetime
+from datetime import datetime, timedelta
+from bs4 import BeautifulSoup
 
 # 1. 환경 설정
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
@@ -13,94 +14,302 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-def get_real_news():
-    """구글 뉴스 RSS를 더 강력하게 수집합니다."""
-    # 키워드를 조금 더 단순화하여 검색 범위를 넓힙니다.
-    query = "인공지능 지자체 로봇 AX DX 양자 산업"
-    encoded_query = urllib.parse.quote(query) 
-    url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
+# ============================================================
+# 🔴 핵심 키워드 정의 (검색 기준)
+# ============================================================
+
+# [중앙정부용] 최우선 키워드 - 이것으로만 검색됨
+CENTRAL_KEYWORDS = [
+    "AI", "DX", "데이터센터", "양자컴퓨팅", "디지털전환", "인공지능전략"
+]
+
+# [지역별용] 지역 + 이 키워드들의 조합으로 검색됨
+REGION_KEYWORDS = [
+    "AI 산업", "디지털 전환", "로봇", "데이터", "혁신"
+]
+
+# 지자체 목록
+REGIONS = [
+    "서울", "경기", "인천", "강원", "충북", "충남", 
+    "전북", "전남", "경북", "경남", "부산", "대구", "광주", "대전", "제주"
+]
+
+# 필터링용 핵심 키워드 (수집된 뉴스 중에 이 중 하나가 있어야 포함됨)
+FILTER_KEYWORDS = [
+    "AI", "인공지능", "AX", "DX", "데이터센터", "양자", "로봇", 
+    "데이터산업", "산업", "사업", "MOU", "컨소시엄", "디지털전환"
+]
+
+# ============================================================
+# 📡 뉴스 수집 함수들
+# ============================================================
+
+def fetch_news_by_keyword(keyword, max_results=10):
+    """
+    특정 키워드로 Google News RSS에서 ��스를 수집합니다.
     
-    # [핵심 업데이트] 브라우저인 것처럼 속이는 Header 추가
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
+    Args:
+        keyword: 검색할 키워드 (예: "AI", "경기도 AI 산업")
+        max_results: 수집할 최대 뉴스 개수
     
+    Returns:
+        뉴스 리스트 (title, link, published)
+    """
     try:
+        encoded_query = urllib.parse.quote(keyword)
+        url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
         response = requests.get(url, headers=headers, timeout=10)
         feed = feedparser.parse(response.content)
         
         news_items = []
-        for entry in feed.entries[:15]:
-            # 기사 제목과 날짜를 함께 수집
-            news_items.append(f"- {entry.title} ({entry.published})")
-        
-        if not news_items:
-            print("⚠️ 1차 수집 실패, 일반 AI 키워드로 재시도...")
-            # 1차 실패 시 더 넓은 범위로 재시도
-            return get_backup_news()
+        for entry in feed.entries[:max_results]:
+            title = entry.title
             
-        return "\n".join(news_items)
+            # 필터링: FILTER_KEYWORDS 중 하나 이상 포함해야 함
+            if any(k.lower() in title.lower() for k in FILTER_KEYWORDS):
+                news_items.append({
+                    "title": title,
+                    "link": entry.link if hasattr(entry, 'link') else "",
+                    "published": entry.published if hasattr(entry, 'published') else "날짜미상"
+                })
+        
+        return news_items
+    
     except Exception as e:
-        print(f"❌ 뉴스 수집 중 에러: {e}")
-        return get_backup_news()
+        print(f"⚠️ '{keyword}' 검색 오류: {e}")
+        return []
 
-def get_backup_news():
-    """뉴스 수집 실패 시 사용할 백업 검색어"""
-    url = "https://news.google.com/rss/search?q=AI+산업+동향&hl=ko&gl=KR&ceid=KR:ko"
-    feed = feedparser.parse(requests.get(url).content)
-    items = [f"- {e.title}" for e in feed.entries[:10]]
-    return "\n".join(items) if items else "현재 수집 가능한 실시간 뉴스가 없습니다."
+def get_central_news():
+    """
+    🏛️ 중앙정부 뉴스 수집
+    CENTRAL_KEYWORDS로만 검색 → 최대 30% 비중
+    """
+    print("[Step 1] 🏛️ 중앙정부 뉴스 수집 중...")
+    central_news = []
+    
+    for keyword in CENTRAL_KEYWORDS:
+        print(f"  → '{keyword}' 검색 중...")
+        news = fetch_news_by_keyword(keyword, max_results=8)
+        
+        for item in news:
+            central_news.append({
+                "source": "중앙정부",
+                "category": keyword,
+                "title": item["title"],
+                "link": item["link"],
+                "published": item["published"]
+            })
+        time.sleep(0.3)  # API 요청 간격
+    
+    # 중복 제거
+    seen = set()
+    unique_central = []
+    for item in central_news:
+        if item["title"] not in seen:
+            seen.add(item["title"])
+            unique_central.append(item)
+    
+    print(f"  ✅ 중앙정부 뉴스 {len(unique_central)}개 수집됨")
+    return unique_central
+
+def get_regional_news():
+    """
+    📍 지역별 뉴스 수집
+    각 지역 + REGION_KEYWORDS 조합으로 검색 → 최소 70% 비중
+    """
+    print("[Step 2] 📍 지역별 뉴스 수집 중...")
+    regional_news = []
+    
+    for region in REGIONS:
+        for keyword in REGION_KEYWORDS:
+            # 검색 쿼리: "경기도 AI 산업" 형식
+            query = f"{region} {keyword}"
+            print(f"  → '{query}' 검색 중...")
+            news = fetch_news_by_keyword(query, max_results=5)
+            
+            for item in news:
+                regional_news.append({
+                    "source": region,
+                    "category": keyword,
+                    "title": item["title"],
+                    "link": item["link"],
+                    "published": item["published"]
+                })
+            time.sleep(0.2)
+    
+    # 중복 제거
+    seen = set()
+    unique_regional = []
+    for item in regional_news:
+        if item["title"] not in seen:
+            seen.add(item["title"])
+            unique_regional.append(item)
+    
+    print(f"  ✅ 지역별 뉴스 {len(unique_regional)}개 수집됨")
+    return unique_regional
+
+def balance_news(central_news, regional_news):
+    """
+    뉴스 균형 조절: 중앙정부 30%, 지역별 70%
+    """
+    total_slots = 20  # 최종 브리핑에 사용할 뉴스 개수
+    central_slots = int(total_slots * 0.3)  # 6개
+    regional_slots = total_slots - central_slots  # 14개
+    
+    # 각각 필요한 개수만 선택
+    selected_central = central_news[:central_slots]
+    selected_regional = regional_news[:regional_slots]
+    
+    # 합치기
+    balanced_news = selected_central + selected_regional
+    
+    print(f"  ✅ 최종 균형: 중앙정부 {len(selected_central)}개, 지역별 {len(selected_regional)}개")
+    return balanced_news
+
+def get_all_news():
+    """
+    통합 뉴스 수집 함수
+    1. 중앙정부 뉴스 (CENTRAL_KEYWORDS 사용)
+    2. 지역별 뉴스 (지역 + REGION_KEYWORDS 사용)
+    3. 비율 균형 유지
+    """
+    central_news = get_central_news()
+    regional_news = get_regional_news()
+    balanced_news = balance_news(central_news, regional_news)
+    
+    return balanced_news
+
+# ============================================================
+# 🤖 브리핑 생성 함수
+# ============================================================
+
+def create_briefing_prompt(news_data, today_date):
+    """
+    구조화된 프롬프트로 품질 개선
+    """
+    
+    # 뉴스 데이터 정리 (출력용)
+    news_formatted = "\n".join([
+        f"[{item['source']}] {item['title']}"
+        for item in news_data
+    ])
+    
+    prompt = f"""
+당신은 대한민국 지자체 'AI산업전략과'의 수석 정책 분석가입니다.
+
+【 지역별 AI 산업 뉴스 브리핑 】
+📅 {today_date}
+
+=== 절대 지킬 규칙 ===
+1. 표(Table) 금지 - 모바일에서 깨짐 ⛔
+2. 마크다운 형식만 사용 (**, •, ---)
+3. 최대 1,500자 (휴대폰 화면 2-3배 스크롤)
+4. 각 뉴스는 최대 2줄 요약
+
+=== 출력 형식 (필수) ===
+📍 **지역/기관명**
+📌 **기사 제목 (굵게)**
+✓ 핵심: (주체 + 날짜 + 내용 요약)
+
+---
+
+=== 수집된 뉴스 ===
+{news_formatted}
+
+=== 출력 지시 ===
+1. 위 뉴스에서 가장 중요한 TOP 8개만 선별
+2. 각각을 위 형식에 맞춰 정리
+3. 마지막에 [오늘의 AI 산업 트렌드] 한 문장 추가
+4. 모바일 가독성 최우선 - 간결함이 최고
+5. 출처 목록 생략
+
+반드시 위 형식을 엄격히 따르세요!
+"""
+    
+    return prompt
+
+def send_to_telegram(message):
+    """
+    텔레그램 발송 (재시도 로직 포함)
+    메시지가 길면 자동 분할
+    """
+    send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    
+    # 메시지가 너무 길면 분할
+    max_length = 4096
+    if len(message) > max_length:
+        messages = [message[i:i+max_length] for i in range(0, len(message), max_length)]
+    else:
+        messages = [message]
+    
+    for idx, msg in enumerate(messages):
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": msg,
+            "parse_mode": "Markdown"
+        }
+        
+        try:
+            response = requests.post(send_url, json=payload, timeout=10)
+            if response.status_code == 200:
+                print(f"✅ 텔레그램 발송 성공 ({idx+1}/{len(messages)})")
+            else:
+                print(f"❌ 텔레그램 발송 실패: {response.status_code}")
+        except Exception as e:
+            print(f"❌ 텔레그램 발송 오류: {e}")
+        
+        time.sleep(0.5)  # 메시지 간격
+
+# ============================================================
+# 🎯 메인 함수
+# ============================================================
 
 def main():
-    print("🚀 뉴스 수집 시작...")
-    news_content = get_real_news()
+    print("=" * 60)
+    print("🚀 AI 산업 뉴스 자동 브리핑 시작")
+    print("=" * 60)
+    
     today_date = datetime.now().strftime("%Y. %m. %d.")
-
-    print("🤖 가독성 중심 AI 브리핑 생성 중...")
-    # 가독성을 극대화한 프롬프트 (카드 뉴스 형식)
-    prompt = f"""
-    당신은 지자체 'AI산업전략과'의 수석 정책 분석가입니다. 
-    오늘({today_date})의 뉴스 데이터를 바탕으로 지역별 AI 동향을 브리핑하세요.
-
-    [출력 규칙]
-    1. 표(Table)를 절대 사용하지 마세요. (모바일 가독성 위함)
-    2. 각 지역별 소식은 아래 형식을 엄격히 따르세요:
-       
-       📍 **[지역명/기관명]**
-       📢 **기사 제목 (굵게)**
-       • 핵심 요약: (사업 주체, 날짜 포함)
-       • 주요 내용: (참여 기관, 예산 등 수치 중심)
-       ---
-
-    3. 하단 구성:
-       
-       [출처 목록]
-       - 기사 제목 (신문사)
-
-    뉴스 데이터:
-    {news_content}
-    """
-
-    summary = ""
+    
+    # Step 1: 뉴스 수집 (중앙정부 + 지역별)
+    print(f"\n📡 {today_date} 뉴스 수집 시작...\n")
+    news_data = get_all_news()
+    
+    if not news_data:
+        print("\n⚠️ 수집된 뉴스가 없습니다")
+        send_to_telegram(f"⚠️ {today_date} - 수집된 AI 관련 뉴스가 없습니다.")
+        return
+    
+    print(f"\n✅ 총 {len(news_data)}개 뉴스 수집 완료\n")
+    
+    # Step 2: 프롬프트 생성
+    prompt = create_briefing_prompt(news_data, today_date)
+    
+    # Step 3: AI 브리핑 생성
+    print("🤖 AI 브리핑 생성 중...\n")
     try:
         response = client.models.generate_content(
-            model='gemma-3-27b-it', 
+            model='gemini-2.0-flash',
             contents=prompt
         )
-        summary = response.text
+        briefing = response.text
     except Exception as e:
-        summary = f"⚠️ AI 생성 중 오류가 발생했습니다: {e}"
-
-    print("📤 텔레그램 발송 시도...")
-    send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID, 
-        "text": summary,
-        "parse_mode": "Markdown" # 가독성을 위한 마크다운 활성화
-    }
+        print(f"❌ AI 생성 오류: {e}")
+        send_to_telegram(f"⚠️ AI 브리핑 생성 실패: {str(e)}")
+        return
     
-    requests.post(send_url, json=payload)
-    print("🎉 처리 완료")
+    # Step 4: 텔레그램 발송
+    print("📤 텔레그램 발송 중...\n")
+    send_to_telegram(briefing)
+    
+    print("=" * 60)
+    print("🎉 완료!")
+    print("=" * 60)
 
 if __name__ == "__main__":
     main()
