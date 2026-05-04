@@ -284,11 +284,11 @@ def get_all_news():
     return balanced_news
 
 # ============================================================
-# 🤖 뉴스 요약 함수 (TOP 5만)
+# 🤖 뉴스 요약 함수 (TOP 5만 + 재시도 로직)
 # ============================================================
 
-def summarize_news_article(title, link):
-    """각 기사의 1-2줄 요약 생성"""
+def summarize_news_article(title, link, retry_count=0, max_retries=3):
+    """각 기사의 1-2줄 요약 생성 (재시도 로직 포함)"""
     prompt = f"""
 당신은 AI 산업 정책 분석가입니다.
 
@@ -305,11 +305,26 @@ def summarize_news_article(title, link):
             model='gemini-2.0-flash',
             contents=prompt
         )
+        
+        # 응답 검증
+        if not response or not response.text:
+            raise Exception("Empty response from API")
+        
         summary = response.text.strip()
         summary = summary.replace('\n', ' ')
         return summary[:100]
+        
     except Exception as e:
-        print(f"⚠️ 요약 생성 실패: {e}")
+        error_msg = str(e)
+        
+        # 재시도 로직
+        if retry_count < max_retries:
+            print(f"⚠️ 요약 생성 재시도 ({retry_count+1}/{max_retries}): {error_msg}")
+            time.sleep(2)  # 2초 대기 후 재시도
+            return summarize_news_article(title, link, retry_count + 1, max_retries)
+        
+        # 모든 재시도 실패 시
+        print(f"❌ 요약 생성 최종 실패: {error_msg}")
         return "[요약 생성 불가]"
 
 def get_summaries_for_news(news_data):
