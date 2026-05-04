@@ -133,11 +133,11 @@ def get_all_news():
 
 def summarize_news_article(title):
     # 중립적인 정책 분석 지시로 안전 필터 충돌 방지
-    prompt = f"AI 산업 정책 분석가로서 다음 뉴스 제목의 핵심만 1줄로 요약하세요: {title}"
+    prompt = f"AI 산업 정책 분석가로서 다음 뉴스의 핵심만 1줄로 요약해줘: {title}"
     try:
-        # 💡 현재 무료 계정에서 가장 안정적인 gemini-1.5-flash 모델로 우회
+        # 💡 현재 무료 계정에서 가장 안정적인 gemini-2.0-flash-lite 모델로 우회
         response = client.models.generate_content(
-            model='gemini-1.5-flash', 
+            model='gemini-2.0-flash-lite', 
             contents=prompt
         )
         if response and response.text:
@@ -156,7 +156,6 @@ def summarize_news_article(title):
 def main():
     skip, reason = should_skip_today()
     if skip: 
-
         return
 
     print("🚀 정책 중심 뉴스 수집 시작...")
@@ -167,7 +166,7 @@ def main():
         return
 
     today_date = datetime.now().strftime("%Y. %m. %d.")
-    briefing = f" 📰 지역별 AI 산업 정책 브리핑 \n📅 {today_date}\n\n"
+    briefing = f"【 📰 지역별 AI 산업 정책 브리핑 】 \n📅 {today_date}\n\n"
 
     # 상위 5개 기사 요약 및 포맷팅
     for idx, item in enumerate(news_data[:5], 1):
@@ -175,7 +174,7 @@ def main():
         # 📍 출처 이모지 뒤에 지역명 또는 중앙정부가 정확히 표시됩니다.
         briefing += f"{idx}. 📍 **{item['source']}**\n📌 {item['title'][:85]}\n✓ {summary}\n\n"
         # 429 에러 방지를 위한 충분한 대기 시간
-        time.sleep(3.5)
+        time.sleep(4.0)
 
     
     # 텔레그램 발송
