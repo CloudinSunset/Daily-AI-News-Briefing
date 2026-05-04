@@ -130,15 +130,36 @@ def get_all_news():
 # 🤖 요약 및 발송 로직 (안정성 강화)
 # ============================================================
 
+#def summarize_news_article(title):
+#    prompt = f"AI 산업 정책 분석가로서 다음 뉴스를 1-2줄로 핵심 요약하세요: {title}"
+#    try:
+#        # 모델을 2.0-flash-lite로 변경하여 할당량 및 속도 개선
+#        response = client.models.generate_content(model='gemini-2.0-flash-lite', contents=prompt)
+#        return response.text.strip() if response.text else "요약 불가"
+#    except Exception as e:
+#        print(f"❌ 요약 실패: {e}")
+#        return "요약 생성 중 오류 발생"
+
 def summarize_news_article(title):
-    prompt = f"AI 산업 정책 분석가로서 다음 뉴스를 1-2줄로 핵심 요약하세요: {title}"
+    # 분석가님, 요약 시 더 구체적인 지시를 주어 안전 필터 충돌을 방지합니다.
+    prompt = f"당신은 중립적인 정책 분석가입니다. 다음 뉴스 제목의 핵심 사실만 1줄로 요약하세요. 정치적 해석은 배제합니다: {title}"
     try:
-        # 모델을 2.0-flash-lite로 변경하여 할당량 및 속도 개선
-        response = client.models.generate_content(model='gemini-2.0-flash-lite', contents=prompt)
-        return response.text.strip() if response.text else "요약 불가"
+        response = client.models.generate_content(
+            model='gemini-2.0-flash-lite', 
+            contents=prompt
+        )
+        
+        # 응답이 비어있거나 차단되었는지 확인
+        if response and response.text:
+            return response.text.strip()
+        else:
+            return "⚠️ 요약 차단(안전 필터 작동)"
+            
     except Exception as e:
-        print(f"❌ 요약 실패: {e}")
-        return "요약 생성 중 오류 발생"
+        # 텔레그램으로 실제 에러 코드의 앞부분을 보냅니다.
+        error_msg = str(e)
+        print(f"❌ 실제 에러 로그: {error_msg}") # GitHub Actions 로그용
+        return f"❌ 요약 실패({error_msg[:30]})"
 
 def main():
     skip, reason = should_skip_today()
