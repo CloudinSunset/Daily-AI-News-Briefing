@@ -36,7 +36,7 @@ FILTER_KEYWORDS = [
     "데이터산업", "산업", "사업", "MOU", "컨소시엄", "디지털전환"
 ]
 
-# ��� 주요 정치인/공직자 명단
+# ⭐ 주요 정치인/공직자 명단
 KEY_POLITICIANS = [
     "하정우", "안혜리", "윤석열", "이재명", "이준석", 
     "김기현", "우상호", "박인영", "김태년", "주호영"
@@ -45,7 +45,7 @@ KEY_POLITICIANS = [
 # ⭐ 우선순위 키워드
 PRIORITY_KEYWORDS = [
     "산업육성", "인재양성", "일자리", "고용", "예산", "투자", 
-    "사��", "협력", "파트너십", "컨소시엄", "MOU", "실증", "클러스터", "거점"
+    "사업", "협력", "파트너십", "컨소시엄", "MOU", "실증", "클러스터", "거점"
 ]
 
 # ⭐ 제외할 기관 키워드
@@ -292,7 +292,7 @@ def summarize_news_article(title, link):
     prompt = f"""
 당신은 AI 산업 정책 분석가입니다.
 
-��음 뉴스 제목을 보고 1-2줄(최대 100자)로 핵심을 요약하세요.
+다음 뉴스 제목을 보고 1-2줄(최대 100자)로 핵심을 요약하세요.
 산업육성, 인재양성, 투자, 일자리 관련 내용을 중심으로.
 
 뉴스 제목: {title}
@@ -398,7 +398,7 @@ def main():
     # ⭐ Step 0: 공휴일/주말 체크 (토큰 낭비 없음)
     should_skip, reason = should_skip_today()
     if should_skip:
-        send_to_telegram(f"🏖️ {datetime.now().strftime('%Y. %m. %d.')}는 {reason}입니다.\n브리핑을 건너뜁니다.")
+        # 공휴일/주말이면 아무 메시지도 보내지 않고 종료
         return
     
     today_date = datetime.now().strftime("%Y. %m. %d.")
