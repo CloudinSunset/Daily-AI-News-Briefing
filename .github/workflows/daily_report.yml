@@ -2,7 +2,7 @@ name: Daily AI News Report
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # ⭐ 매일 실행 (코드에서 공휴일/주말 필터)
+    - cron: '40 23 * * *'  # ⭐ 매일 실행 (코드에서 공휴일/주말 필터)
   workflow_dispatch: 
 
 jobs:
@@ -21,6 +21,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Check Start Time
+        run: date # 실제로 언제 서버가 돌아가기 시작했는지 로그로 확인 가능
+        
       - name: Install dependencies
         run: |
           pip install google-genai feedparser requests beautifulsoup4 holidays
