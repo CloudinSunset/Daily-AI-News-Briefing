@@ -178,7 +178,7 @@ def main():
         summary = summarize_news_article(item['title'])
         # 📍 수정: item['source']를 사용하여 중앙정부/지역명을 정확히 표시
         briefing += f"{idx}. 📍 **{item['source']}**\n📌 {item['title'][:85]}\n✓ {summary}\n\n"
-        time.sleep(1.5) # 할당량 보호(429 에러 방지)를 위한 짧은 휴식
+        time.sleep(3.0) # 할당량 보호(429 에러 방지)를 위한 짧은 휴식
 
     
     send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
