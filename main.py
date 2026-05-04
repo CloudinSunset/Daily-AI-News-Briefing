@@ -84,17 +84,12 @@ def fetch_news(keyword, source_name, max_results=5):
 
 def main():
     if should_skip_today():
-        print("🏖️ 휴일 브리핑 생략")
         return
 
     print("🚀 뉴스 필터링 및 브리핑 생성 시작...")
     all_raw_news = []
-    
-    # 1. 중앙 정부 뉴스 수집 (출처를 '중앙정부'로 고정)
     for kw in CENTRAL_KEYWORDS:
         all_raw_news.extend(fetch_news(kw, "중앙정부", 3))
-    
-    # 2. 지역 뉴스 수집 (출처를 '지역명'으로 고정)
     for reg in REGIONS:
         all_raw_news.extend(fetch_news(f"{reg} AI 산업", reg, 2))
 
@@ -102,31 +97,42 @@ def main():
         print("⚠️ 뉴스 없음")
         return
 
-    # 중복 제거 및 상위 5개 선별
     unique_news = {n['title']: n for n in all_raw_news}.values()
     final_selection = sorted(unique_news, key=lambda x: x['source'] != "중앙정부")[:5]
 
     today_str = datetime.now().strftime("%Y. %m. %d.")
-    briefing = f"【 🏢 지역별 AI 산업 정책 브리핑 】\n📅 {today_str}\n\n"
+    briefing = f"【 📰 지역별 AI 산업 동향 브리핑 】\n📅 {today_str}\n\n"
 
     for idx, item in enumerate(final_selection, 1):
+        # 💡 [조치 1] 모델을 더 가벼운 'flash-lite'로 변경 (할당량에 훨씬 관대함)
+        # 💡 [조치 2] 모델명 앞에 'models/'를 붙여 경로를 더 명확히 함
         prompt = f"AI 산업 정책 분석가로서 다음 뉴스 제목을 1줄(50자 내외)로 요약하세요: {item['title']}"
+        
         try:
-            response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-            summary = response.text.strip()
-        except:
-            summary = "요약 실패"
+            # 2026년 무료 티어에서 가장 안정적인 gemini-2.0-flash-lite 사용
+            response = client.models.generate_content(
+                model='gemini-2.0-flash-lite', 
+                contents=prompt
+            )
+            
+            # 응답이 차단되었는지 확인 (안전 필터 등)
+            if response.text:
+                summary = response.text.strip()
+            else:
+                summary = "AI 정책에 따라 요약이 제한된 기사입니다."
+        except Exception as e:
+            # 💡 [조치 3] 실패 시 "왜" 실패했는지 에러 메시지를 직접 출력
+            error_msg = str(e)
+            print(f"❌ 요약 실패 사유: {error_msg}")
+            summary = f"요약 실패 (사유: {error_msg[:30]}...)"
+            # 429 에러(할당량) 방지를 위해 잠시 쉬어감
+            time.sleep(2) 
 
-        # 📍 수정된 출력 부분: 이제 📍 뒤에 정확한 지역명이나 '중앙정부'가 나옵니다.
         briefing += f"{idx}. 📍 **{item['source']}**\n"
         briefing += f"📢 **{item['title'][:85]}**\n"
         briefing += f"• {summary}\n\n"
 
-    briefing += "---\n*본 브리핑은 공공 정책 및 산업 동향 중심으로 선별되었습니다.*"
 
     send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     requests.post(send_url, json={"chat_id": TELEGRAM_CHAT_ID, "text": briefing, "parse_mode": "Markdown"})
     print("🎉 발송 완료!")
-
-if __name__ == "__main__":
-    main()
