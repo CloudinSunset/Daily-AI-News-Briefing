@@ -17,7 +17,7 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ============================================================
-# 🔴 핵심 키워드 및 필터링 정의 (기본 양식 유지)
+# 🔴 핵심 키워드 및 필터링 정의 
 # ============================================================
 
 CENTRAL_KEYWORDS = ["AI 정책", "데이터센터", "양자컴퓨팅", "디지털전환", "인공지능 전략"]
@@ -27,13 +27,16 @@ FILTER_KEYWORDS = ["AI", "인공지능", "AX", "DX", "로봇", "데이터산업"
 # 🚫 필터링: 경제/주식/기업 홍보 뉴스
 ECONOMY_KEYWORDS = ["증시", "주가", "상한가", "호황", "성장률", "영업이익", "매수", "나스닥", "코스피", "GDP", "금리", "환율", "실적 발표", "성장세"]
 CORPORATE_KEYWORDS = ["출시", "선보여", "이벤트", "할인", "사전예약", "공개채용", "업데이트", "이용권", "구독", "신제품", "출장 서비스", "솔루션 공급", "B2B", "CSP", "공모"]
-EXCLUDE_ORGANIZATIONS = ["대학", "대학교", "학교", "학원", "교육", "캠프", "졸업", "입학", "수강", "수료", "후보"]
+EXCLUDE_ORGANIZATIONS = ["대학", "대학교", "학교", "학원", "교육", "캠프", "졸업", "입학", "수강", "수료"]
+
+# 🔴 [추가] 정치/선거 관련 절대 제외 키워드 (지역명 포함 여부와 상관없이 차단)
+POLITICS_KEYWORDS = ["후보", "공약", "출마", "선거", "의원", "당선", "유세", "국회", "총선", "지선", "대선"]
 
 # ✅ 공공성 판단용 키워드
 GOV_KEYWORDS = ["정부", "부처", "시청", "도청", "지자체", "공공", "국가", "과학기술정보통신부", "중기부", "산업부"] + REGIONS
 
 # ============================================================
-# ⭐ 기존 논리 함수 (기본 양식 그대로 유지)
+# ⭐ 기존 논리 함수 
 # ============================================================
 
 def should_skip_today():
@@ -65,20 +68,26 @@ def get_priority_score(title):
     return score
 
 # ============================================================
-# 📡 뉴스 수집 및 정교한 필터링 (분석가님 요청 반영)
+# 📡 뉴스 수집 및 정교한 필터링 
 # ============================================================
 
 def is_unwanted_news(title):
     title_lower = title.lower()
     
-    # 1. 경제/증시 뉴스 제외
+    # 1. 🚨 정치/선거 관련 뉴스 절대 제외 (우선순위 최상, 공공기관 예외 없음)
+    if any(key in title_lower for key in POLITICS_KEYWORDS): return True
+
+    # 2. 경제/증시 뉴스 제외
     if any(key in title_lower for key in ECONOMY_KEYWORDS): return True
-    # 2. 상업성 기업 홍보 제외
+    
+    # 3. 상업성 기업 홍보 제외
     if any(key in title_lower for key in CORPORATE_KEYWORDS): return True
-    # 3. 기업 간 단순 MOU 필터링 (공공기관 명칭이 없으면 제외)
+    
+    # 4. 기업 간 단순 MOU 필터링 (공공기관 명칭이 없으면 제외)
     if any(m in title_lower for m in ["mou", "협약", "체결"]):
         if not any(gov in title_lower for gov in GOV_KEYWORDS): return True
-    # 4. 단순 교육 뉴스 제외
+        
+    # 5. 단순 교육 뉴스 제외
     if any(edu in title_lower for edu in EXCLUDE_ORGANIZATIONS):
         if not any(gov in title_lower for gov in GOV_KEYWORDS): return True
         
@@ -102,7 +111,7 @@ def fetch_news_by_keyword(keyword, source_name, max_results=5):
                 news_items.append({
                     "title": title,
                     "link": entry.link,
-                    "source": source_name # 📍 출처(중앙정부/지역명) 고정
+                    "source": source_name 
                 })
             if len(news_items) >= max_results: break
         return news_items
@@ -123,19 +132,16 @@ def get_all_news():
         for item in news:
             regional_news.append({**item, "priority": get_priority_score(item["title"])})
     
-    # 분석가님 고유의 중복 제거 및 정렬 로직 적용
     combined_news = remove_duplicate_news(central_news + regional_news)
     return sorted(combined_news, key=lambda x: x["priority"], reverse=True)
 
 # ============================================================
-# 🤖 요약 로직 (가장 안정적인 1.5-flash 모델 적용)
+# 🤖 요약 로직
 # ============================================================
 
 def summarize_news_article(title):
-    # 중립적인 정책 분석 지시로 안전 필터 충돌 방지
     prompt = f"AI 산업 정책 분석가로서 다음 제목의 뉴스 핵심만 1줄로 요약해줘: {title}"
     try:
-        # 💡 현재 무료 계정에서 가장 안정적인 gemini-2.0-flash-lite 모델로 우회
         response = client.models.generate_content(
             model='gemini-2.0-flash-lite', 
             contents=prompt
@@ -145,7 +151,6 @@ def summarize_news_article(title):
         else:
             return "핵심 정책 내용을 요약 중입니다."
     except Exception as e:
-        # 에러 발생 시 로그에 상세 사유 출력
         print(f"❌ 요약 실패 사유: {str(e)}")
         return "요약 생성 중 오류 발생"
 
@@ -168,16 +173,11 @@ def main():
     today_date = datetime.now().strftime("%Y. %m. %d.")
     briefing = f"【 📰 지역별 AI 산업 정책 브리핑 】 \n📅 {today_date}\n\n"
 
-    # 상위 5개 기사 요약 및 포맷팅
     for idx, item in enumerate(news_data[:5], 1):
         summary = summarize_news_article(item['title'])
-        # 📍 출처 이모지 뒤에 지역명 또는 중앙정부가 정확히 표시됩니다.
         briefing += f"{idx}. 📍 **{item['source']}**\n📌 {item['title'][:85]}\n✓ {summary}\n\n"
-        # 429 에러 방지를 위한 충분한 대기 시간
         time.sleep(10)
 
-    
-    # 텔레그램 발송
     send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": briefing, "parse_mode": "Markdown"}
     
