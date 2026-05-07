@@ -178,7 +178,7 @@ def main():
         return
 
     today_date = datetime.now().strftime("%Y. %m. %d.")
-    briefing = f"【 📰 지역별 AI 산업 정책 브리핑 】 \n📅 {today_date}\n\n"
+    briefing = f"【 📰 지역별 AI 산업 동향 】 \n📅 {today_date}\n\n"
 
     for idx, item in enumerate(news_data[:5], 1):
         summary = summarize_news_article(item['title'])
