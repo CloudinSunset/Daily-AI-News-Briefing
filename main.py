@@ -150,16 +150,23 @@ def summarize_news_article(title):
     prompt = f"AI 산업 정책 분석가로서 다음 제목의 뉴스 핵심만 1줄로 요약해줘: {title}"
     try:
         response = client.models.generate_content(
-            model='gemini-3.1-flash-lite', 
+            model='gemini-2.5-flash', 
             contents=prompt
         )
         if response and response.text:
             return response.text.strip()
         else:
             return "핵심 정책 내용을 요약 중입니다."
+            
     except Exception as e:
-        print(f"❌ 요약 실패 사유: {str(e)}")
-        return "요약 생성 중 오류 발생"
+        error_msg = str(e)
+        # 503(서버 바쁨) 에러가 나면 분석가님께 상황을 알립니다.
+        if "503" in error_msg:
+            print(f"⚠️ 구글 서버가 현재 바쁩니다(503). 15초 후 다음 기사를 시도합니다.")
+            time.sleep(5) # 추가 대기
+        else:
+            print(f"❌ 요약 실패 사유: {error_msg}")
+        return "요약 생성 중 일시적 오류 발생"
 
 # ============================================================
 # 📤 메인 실행 및 발송
