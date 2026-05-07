@@ -150,7 +150,7 @@ def summarize_news_article(title):
     prompt = f"AI 산업 정책 분석가로서 다음 제목의 뉴스 핵심만 1줄로 요약해줘: {title}"
     try:
         response = client.models.generate_content(
-            model='gemini-2.0-flash-lite', 
+            model='gemini-3.1-flash-lite', 
             contents=prompt
         )
         if response and response.text:
