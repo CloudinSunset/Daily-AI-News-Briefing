@@ -174,7 +174,7 @@ def main():
         # 📍 출처 이모지 뒤에 지역명 또는 중앙정부가 정확히 표시됩니다.
         briefing += f"{idx}. 📍 **{item['source']}**\n📌 {item['title'][:85]}\n✓ {summary}\n\n"
         # 429 에러 방지를 위한 충분한 대기 시간
-        time.sleep(4.0)
+        time.sleep(10)
 
     
     # 텔레그램 발송
