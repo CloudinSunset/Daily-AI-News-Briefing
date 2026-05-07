@@ -147,7 +147,7 @@ def get_all_news():
 # ============================================================
 
 def summarize_news_article(title):
-    prompt = f"AI 산업 정책 분석가로서 다음 제목의 뉴스 핵심만 1줄로 요약해줘: {title}"
+    prompt = f"AI 산업 정책 분석가로서 다음 뉴스의 핵심(누구와 누가, 어떤 목적,목표)만 명사형 어미로 끝나는 문장 1~2 줄로 요약해줘: {title}"
     try:
         response = client.models.generate_content(
             model='gemini-2.5-flash', 
@@ -190,7 +190,7 @@ def main():
     for idx, item in enumerate(news_data[:5], 1):
         summary = summarize_news_article(item['title'])
         briefing += f"{idx}. 📍 **{item['source']}**\n📌 {item['title'][:85]}\n✓ {summary}\n\n"
-        time.sleep(10)
+        time.sleep(15)
 
     send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": briefing, "parse_mode": "Markdown"}
