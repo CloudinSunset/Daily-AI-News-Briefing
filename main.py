@@ -4,6 +4,7 @@ import requests
 import feedparser
 import urllib.parse
 import time
+import json
 from google import genai
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -17,7 +18,7 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ============================================================
-# 🔴 핵심 키워드 및 필터링 정의 
+# 🔴 핵심 키워드 및 필터링 정의
 # ============================================================
 
 CENTRAL_KEYWORDS = ["AI 정책", "데이터센터", "양자컴퓨팅", "디지털전환", "인공지능 전략"]
@@ -42,7 +43,7 @@ POLITICS_KEYWORDS = ["후보", "공약", "출마", "선거", "의원", "당선",
 GOV_KEYWORDS = ["정부", "부처", "시청", "도청", "지자체", "공공", "국가", "과학기술정보통신부", "중기부", "산업부"] + REGIONS
 
 # ============================================================
-# ⭐ 기존 논리 함수 
+# ⭐ 기존 논리 함수
 # ============================================================
 
 def should_skip_today():
@@ -52,6 +53,36 @@ def should_skip_today():
     if today.weekday() >= 5: return True, "주말"
     return False, None
 
+def already_executed_today():
+    """오늘 이미 워크플로우가 성공적으로 실행되었는지 확인"""
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    token = os.environ.get("GITHUB_TOKEN")
+    if not repo or not token:
+        return False
+
+    url = f"https://api.github.com/repos/{repo}/actions/runs?status=success&per_page=10"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            runs = response.json().get("workflow_runs", [])
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            current_run_id = os.environ.get("GITHUB_RUN_ID")
+
+            for run in runs:
+                if str(run["id"]) == current_run_id:
+                    continue
+                run_date = run["created_at"].split("T")[0]
+                if run_date == today_str:
+                    return True
+        return False
+    except:
+        return False
+
 def calculate_title_similarity(title1, title2):
     return SequenceMatcher(None, title1, title2).ratio()
 
@@ -60,7 +91,7 @@ def remove_duplicate_news(news_list, similarity_threshold=0.65):
     for current in news_list:
         is_duplicate = False
         for existing in unique_news:
-            if calculate_similarity := calculate_title_similarity(current["title"].lower(), existing["title"].lower()) > similarity_threshold:
+            if calculate_title_similarity(current["title"].lower(), existing["title"].lower()) > similarity_threshold:
                 is_duplicate = True
                 break
         if not is_duplicate: unique_news.append(current)
@@ -74,30 +105,19 @@ def get_priority_score(title):
     return score
 
 # ============================================================
-# 📡 뉴스 수집 및 정교한 필터링 (공공성 로직 강화)
+# 📡 뉴스 수집 및 정교한 필터링
 # ============================================================
 
 def is_unwanted_news(title):
     title_lower = title.lower()
-    
-    # 1. 🚨 정치/선거 관련 뉴스 절대 제외
     if any(key in title_lower for key in POLITICS_KEYWORDS): return True
-
-    # 2. 🚨 경제/증시 뉴스 절대 제외
     if any(key in title_lower for key in ECONOMY_KEYWORDS): return True
-    
-    # 3. ⭐ 개별 기업 홍보 필터 (정부/지자체 키워드가 없으면 제외)
     if any(key in title_lower for key in CORPORATE_KEYWORDS):
         if not any(gov in title_lower for gov in GOV_KEYWORDS): return True
-    
-    # 4. 기업 간 단순 MOU 필터 (정부/지자체 키워드가 없으면 제외)
     if any(m in title_lower for m in ["mou", "협약", "체결"]):
         if not any(gov in title_lower for gov in GOV_KEYWORDS): return True
-        
-    # 5. 단순 교육 뉴스 필터 (정부/지자체 키워드가 없으면 제외)
     if any(edu in title_lower for edu in EXCLUDE_ORGANIZATIONS):
         if not any(gov in title_lower for gov in GOV_KEYWORDS): return True
-        
     return False
 
 def fetch_news_by_keyword(keyword, source_name, max_results=5):
@@ -105,7 +125,6 @@ def fetch_news_by_keyword(keyword, source_name, max_results=5):
         encoded_query = urllib.parse.quote(keyword)
         url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        
         response = requests.get(url, headers=headers, timeout=10)
         feed = feedparser.parse(response.content)
         
@@ -113,32 +132,23 @@ def fetch_news_by_keyword(keyword, source_name, max_results=5):
         for entry in feed.entries[:10]:
             title = entry.title
             if is_unwanted_news(title): continue 
-            
             if any(k.lower() in title.lower() for k in FILTER_KEYWORDS):
-                news_items.append({
-                    "title": title,
-                    "link": entry.link,
-                    "source": source_name 
-                })
+                news_items.append({"title": title, "link": entry.link, "source": source_name})
             if len(news_items) >= max_results: break
         return news_items
     except: return []
 
 def get_all_news():
-    print("[Step 1] 중앙정부 뉴스 수집 중...")
     central_news = []
     for kw in CENTRAL_KEYWORDS:
         news = fetch_news_by_keyword(kw, "중앙정부", 2)
         for item in news:
             central_news.append({**item, "priority": get_priority_score(item["title"])})
-    
-    print("[Step 2] 지역별 뉴스 수집 중...")
     regional_news = []
     for reg in REGIONS:
         news = fetch_news_by_keyword(f"{reg} AI 산업", reg, 2)
         for item in news:
             regional_news.append({**item, "priority": get_priority_score(item["title"])})
-    
     combined_news = remove_duplicate_news(central_news + regional_news)
     return sorted(combined_news, key=lambda x: x["priority"], reverse=True)
 
@@ -147,41 +157,46 @@ def get_all_news():
 # ============================================================
 
 def summarize_news_article(title):
-    prompt = f"AI 산업 정책 분석가로서 다음 뉴스의 제목만으로는 파악할 수 없는 핵심(누구와 누가, 어떤 목적,목표, 계획 등)만 명사형 어미로 끝나는 문장 1~2 줄로 요약해줘: {title}"
+    prompt = f"AI 산업 정책 분석가로서 다음 뉴스의 제목만으로는 파악할 수 없는 핵심(누구와 누가, 어떤 목적, 목표, 계획 등)만 명사형 어미로 끝나는 문장 1~2 줄로 요약해줘: {title}"
     try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash', 
-            contents=prompt
-        )
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         if response and response.text:
             return response.text.strip()
-        else:
-            return "핵심 정책 내용을 요약 중입니다."
-            
+        return "핵심 정책 내용을 요약 중입니다."
     except Exception as e:
         error_msg = str(e)
-        # 503(서버 바쁨) 에러가 나면 분석가님께 상황을 알립니다.
         if "503" in error_msg:
-            print(f"⚠️ 구글 서버가 현재 바쁩니다(503). 15초 후 다음 기사를 시도합니다.")
-            time.sleep(5) # 추가 대기
+            print(f"⚠️ 서버 부하(503) 발생. 대기 후 재시도.")
+            time.sleep(10)
         else:
-            print(f"❌ 요약 실패 사유: {error_msg}")
+            print(f"❌ 요약 실패: {error_msg}")
         return "요약 생성 중 일시적 오류 발생"
 
 # ============================================================
-# 📤 메인 실행 및 발송
+# 📤 메인 실행 및 발송 (침묵 모드 적용)
 # ============================================================
 
 def main():
+    # 1. 실행 트리거 확인 (manual vs schedule)
+    event_name = os.environ.get("GITHUB_EVENT_NAME", "manual")
+    
+    # 2. 휴일 체크
     skip, reason = should_skip_today()
-    if skip: 
+    if skip:
+        # 휴일에는 아무 메시지 없이 조용히 종료
         return
 
-    print("🚀 정책 중심 뉴스 수집 시작...")
+    # 3. 중복 실행 체크 (자동 스케줄러일 때만 작동)
+    if event_name == 'schedule':
+        if already_executed_today():
+            # 이미 성공 기록이 있다면 텔레그램을 보내지 않고 '완전 침묵' 종료
+            print("🔇 오늘 이미 발송된 기록이 있어 자동 브리핑을 생략합니다.")
+            return
+
+    # 4. 뉴스 수집 (여기에 도달했다면 발송 대상)
+    print(f"🚀 뉴스 수집 시작 (실행 모드: {event_name})")
     news_data = get_all_news()
-    
     if not news_data:
-        print("⚠️ 수집된 정책 뉴스가 없습니다.")
         return
 
     today_date = datetime.now().strftime("%Y. %m. %d.")
@@ -192,17 +207,14 @@ def main():
         briefing += f"{idx}. 📍 **{item['source']}**\n📌 {item['title'][:85]}\n✓ {summary}\n\n"
         time.sleep(15)
 
+    # 5. 텔레그램 발송
     send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": briefing, "parse_mode": "Markdown"}
-    
     try:
-        res = requests.post(send_url, json=payload, timeout=10)
+        res = requests.post(send_url, json={"chat_id": TELEGRAM_CHAT_ID, "text": briefing, "parse_mode": "Markdown"}, timeout=10)
         if res.status_code == 200:
-            print("🎉 텔레그램 발송 성공!")
-        else:
-            print(f"❌ 발송 실패({res.status_code}): {res.text}")
-    except Exception as e:
-        print(f"❌ 네트워크 오류: {e}")
+            print("🎉 발송 성공!")
+    except:
+        print("❌ 발송 실패")
 
 if __name__ == "__main__":
     main()
