@@ -147,7 +147,7 @@ def get_all_news():
 # ============================================================
 
 def summarize_news_article(title):
-    prompt = f"AI 산업 정책 분석가로서 다음 뉴스의 핵심(누구와 누가, 어떤 목적,목표)만 명사형 어미로 끝나는 문장 1~2 줄로 요약해줘: {title}"
+    prompt = f"AI 산업 정책 분석가로서 다음 뉴스의 제목만으로는 파악할 수 없는 핵심(누구와 누가, 어떤 목적,목표, 계획 등)만 명사형 어미로 끝나는 문장 1~2 줄로 요약해줘: {title}"
     try:
         response = client.models.generate_content(
             model='gemini-2.5-flash', 
