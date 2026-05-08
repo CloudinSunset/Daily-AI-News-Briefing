@@ -2,7 +2,7 @@ name: Daily AI News Report
 
 on:
   schedule:
-    - cron: '40 23 * * *'  # ⭐ 매일 실행 (코드에서 공휴일/주말 필터)
+    - cron: '47 23 * * *'  # ⭐ 매일 실행 (코드에서 공휴일/주말 필터)
   workflow_dispatch: 
 
 jobs:
