@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      TZ: 'Asia/Seoul'
 
     steps:
       - name: Checkout code
@@ -37,4 +36,5 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
+          TZ: 'Asia/Seoul'  # <--- 이 위치에 추가 (한국시간 적용 원활 / env 섹션에 함께 넣어서 관리 수월)
         run: python main.py
