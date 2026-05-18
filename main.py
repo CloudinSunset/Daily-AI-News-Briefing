@@ -90,8 +90,8 @@ def calculate_title_similarity(title1, title2):
     # 정규화된 상태에서 연속된 공통 문자열 블록의 비중을 계산
     return SequenceMatcher(None, t1, t2).ratio()
 
-def remove_duplicate_news(news_list, similarity_threshold=0.65):
-    """정규화 후 SequenceMatcher 유사도가 65%(0.65)를 넘는 중복 기사 제거"""
+def remove_duplicate_news(news_list, similarity_threshold=0.6):
+    """정규화 후 SequenceMatcher 유사도가 60%(0.6)를 넘는 중복 기사 제거"""
     unique_news = []
     for current in news_list:
         is_duplicate = False
