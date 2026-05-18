@@ -81,7 +81,7 @@ def calculate_title_similarity(title1, title2):
     return len(set1.intersection(set2)) / len(set1.union(set2))
 
 # 임계값 기본설정 0.65(65%)
-def remove_duplicate_news(news_list, similarity_threshold=0.65):
+def remove_duplicate_news(news_list, similarity_threshold=0.5):
     unique_news = []
     for current in news_list:
         is_duplicate = False
