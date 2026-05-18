@@ -7,7 +7,6 @@ import time
 import json
 from google import genai
 from datetime import datetime
-from difflib import SequenceMatcher
 import holidays
 
 # 1. 환경 설정
@@ -71,9 +70,17 @@ def already_executed_today():
         return False
     except: return False
 
+#  단어(띄어쓰기) 기준 자카드 유사도 방식으로 교체
 def calculate_title_similarity(title1, title2):
-    return SequenceMatcher(None, title1, title2).ratio()
+    set1 = set(title1.split())
+    set2 = set(title2.split())
+    
+    if not set1 or not set2: 
+        return 0.0
+        
+    return len(set1.intersection(set2)) / len(set1.union(set2))
 
+# 임계값 기본설정 0.65(65%)
 def remove_duplicate_news(news_list, similarity_threshold=0.65):
     unique_news = []
     for current in news_list:
