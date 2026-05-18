@@ -95,8 +95,8 @@ def calculate_title_similarity(title1, title2):
         
     return len(set1.intersection(set2)) / len(set1.union(set2))
 
-def remove_duplicate_news(news_list, similarity_threshold=0.6):
-    """정규화 자카드 유사도가 60%(0.6)를 넘는 중복 기사 제거"""
+def remove_duplicate_news(news_list, similarity_threshold=0.5):
+    """정규화 자카드 유사도가 50%(0.5)를 넘는 중복 기사 제거"""
     unique_news = []
     for current in news_list:
         is_duplicate = False
