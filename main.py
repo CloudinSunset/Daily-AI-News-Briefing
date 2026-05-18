@@ -7,6 +7,7 @@ import time
 import json
 from google import genai
 from datetime import datetime
+from difflib import SequenceMatcher
 import holidays
 
 # 1. 환경 설정
@@ -79,24 +80,18 @@ def clean_title(title):
     return title.lower()
 
 def calculate_title_similarity(title1, title2):
-    """정규화된 텍스트를 바탕으로 음절 단위 2-Gram 자카드 유사도 계산"""
+    """정규화된 텍스트를 바탕으로 SequenceMatcher(연속성 중심) 유사도 계산"""
     t1 = clean_title(title1)
     t2 = clean_title(title2)
     
-    if len(t1) < 2 or len(t2) < 2:
+    if not t1 or not t2:
         return 0.0
         
-    # 두 글자씩 토큰화하여 집합 생성
-    set1 = set(t1[i:i+2] for i in range(len(t1) - 1))
-    set2 = set(t2[i:i+2] for i in range(len(t2) - 1))
-    
-    if not set1 or not set2: 
-        return 0.0
-        
-    return len(set1.intersection(set2)) / len(set1.union(set2))
+    # 정규화된 상태에서 연속된 공통 문자열 블록의 비중을 계산
+    return SequenceMatcher(None, t1, t2).ratio()
 
-def remove_duplicate_news(news_list, similarity_threshold=0.5):
-    """정규화 자카드 유사도가 50%(0.5)를 넘는 중복 기사 제거"""
+def remove_duplicate_news(news_list, similarity_threshold=0.65):
+    """정규화 후 SequenceMatcher 유사도가 65%(0.65)를 넘는 중복 기사 제거"""
     unique_news = []
     for current in news_list:
         is_duplicate = False
