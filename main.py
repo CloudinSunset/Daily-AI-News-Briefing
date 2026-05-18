@@ -40,7 +40,7 @@ POLITICS_KEYWORDS = ["후보", "공약", "출마", "선거", "의원", "당선",
 GOV_KEYWORDS = ["정부", "부처", "시청", "도청", "지자체", "공공", "국가", "과학기술정보통신부", "중기부", "산업부"] + REGIONS
 
 # ============================================================
-# ⭐ 기존 논리 함수
+# ⭐ 개선된 논리 및 정규화 함수
 # ============================================================
 
 def should_skip_today():
@@ -70,23 +70,38 @@ def already_executed_today():
         return False
     except: return False
 
-#  단어(띄어쓰기) 기준 자카드 유사도 방식으로 교체
+def clean_title(title):
+    """뉴스 제목에서 불필요한 괄호태그, 특수문자, 띄어쓰기를 제거하여 정규화"""
+    # 1. 대괄호, 소괄호 및 그 안의 텍스트 제거 (예: [속보], (종합))
+    title = re.sub(r'\[.*?\]|\(.*?\)|【.*?】', ' ', title)
+    # 2. 한글, 영문, 숫자만 남기고 공백까지 포함해 특수문자 전부 제거
+    title = re.sub(r'[^가-힣a-zA-Z0-9]', '', title)
+    return title.lower()
+
 def calculate_title_similarity(title1, title2):
-    set1 = set(title1.split())
-    set2 = set(title2.split())
+    """정규화된 텍스트를 바탕으로 음절 단위 2-Gram 자카드 유사도 계산"""
+    t1 = clean_title(title1)
+    t2 = clean_title(title2)
+    
+    if len(t1) < 2 or len(t2) < 2:
+        return 0.0
+        
+    # 두 글자씩 토큰화하여 집합 생성
+    set1 = set(t1[i:i+2] for i in range(len(t1) - 1))
+    set2 = set(t2[i:i+2] for i in range(len(t2) - 1))
     
     if not set1 or not set2: 
         return 0.0
         
     return len(set1.intersection(set2)) / len(set1.union(set2))
 
-# 임계값 기본설정 0.65(65%)
-def remove_duplicate_news(news_list, similarity_threshold=0.5):
+def remove_duplicate_news(news_list, similarity_threshold=0.6):
+    """정규화 자카드 유사도가 60%(0.6)를 넘는 중복 기사 제거"""
     unique_news = []
     for current in news_list:
         is_duplicate = False
         for existing in unique_news:
-            if calculate_title_similarity(current["title"].lower(), existing["title"].lower()) > similarity_threshold:
+            if calculate_title_similarity(current["title"], existing["title"]) >= similarity_threshold:
                 is_duplicate = True
                 break
         if not is_duplicate: unique_news.append(current)
@@ -184,13 +199,11 @@ def main():
 
     for idx, item in enumerate(news_data[:5], 1):
         summary = summarize_news_article(item['title'])
-        # 🔗 [출처](링크) 형식으로 수정하여 하이퍼링크 구현
         briefing += f"{idx}. 📍 [**{item['source']}**]({item['link']})\n📌 {item['title'][:85]}\n✓ {summary}\n\n"
         time.sleep(15)
 
     send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
-        # MarkdownV2 대신 일반 Markdown이 사용하기 더 직관적이므로 그대로 유지합니다.
         requests.post(send_url, json={"chat_id": TELEGRAM_CHAT_ID, "text": briefing, "parse_mode": "Markdown", "disable_web_page_preview": False}, timeout=10)
         print("🎉 발송 성공!")
     except:
